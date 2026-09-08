@@ -18,12 +18,31 @@ if (isset($_SESSION['user']['id'])) {
     }
 }
 
+function zan_access_denied($message){
+    http_response_code(403);
+    $safeMessage=htmlspecialchars((string)$message,ENT_QUOTES,'UTF-8');
+    echo '<!doctype html><html lang="sw"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Access denied</title><style>body{margin:0;background:#f4f6f8;font-family:Arial,sans-serif;color:#222;display:grid;place-items:center;min-height:100vh}.box{width:min(520px,calc(100% - 32px));box-sizing:border-box;background:#fff;border-radius:12px;padding:28px;box-shadow:0 3px 14px rgba(0,0,0,.12);text-align:center}.actions{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:22px}a,button{border:0;border-radius:7px;padding:11px 18px;font-weight:700;text-decoration:none;cursor:pointer;font-size:14px}.back{background:#ffd000;color:#111}.exit{background:#222;color:#fff}</style></head><body><main class="box"><h2>Huna ruhusa</h2><p>'.$safeMessage.'</p><div class="actions"><button class="back" type="button" onclick="if(history.length>1){history.back();}else{location.href=\'index.php\';}">↩ RUDI</button><a class="exit" href="index.php?logout=1">EXIT / TOKA</a></div></main></body></html>';
+    exit;
+}
+
 /* =========================================================
    ROUTING
    ========================================================= */
 
 $page = $_GET['page'] ?? 'dashboard';
 $action = $_GET['action'] ?? '';
+
+/* Site Tracking sessions expire after a configurable period of inactivity. */
+$stTimeoutMinutes = max(5, min(240, (int)($_SESSION['st_timeout_minutes'] ?? 30)));
+if (isset($_SESSION['user'])) {
+    $lastActivity = (int)($_SESSION['st_last_activity'] ?? time());
+    if (time() - $lastActivity >= $stTimeoutMinutes * 60 && !isset($_GET['logout'])) {
+        unset($_SESSION['user'], $_SESSION['login_system'], $_SESSION['st_last_activity']);
+        header('Location:index.php?timeout=1');
+        exit;
+    }
+    $_SESSION['st_last_activity'] = time();
+}
 
 /* =========================================================
    SYSTEM ISOLATION - EARLY ACTION GUARD
@@ -40,7 +59,7 @@ if (isset($_SESSION['user']) && $action !== '' && strpos($action, 'st_') === 0) 
 
     if (!$isSuperForAccess && $accountSystemForAccess !== 'site' && $accountSystemForAccess !== 'both') {
         http_response_code(403);
-        exit('Huna ruhusa ya kutumia Site Tracking System.');
+        zan_access_denied('Huna ruhusa ya kutumia Site Tracking System.');
     }
 }
 
@@ -54,6 +73,15 @@ $zanLang = $_SESSION['zan_lang'] ?? 'sw';
 function zan_t($sw, $en) {
     global $zanLang;
     return $zanLang === 'en' ? $en : $sw;
+}
+function zan_password_hash($password) {
+    return hash('sha256', (string)$password);
+}
+function zan_password_verify($password, $storedHash) {
+    $storedHash=(string)$storedHash;
+    if($storedHash==='' ) return false;
+    if(str_starts_with($storedHash,'$2y$') || str_starts_with($storedHash,'$argon2')) return password_verify((string)$password,$storedHash);
+    return hash_equals($storedHash,zan_password_hash($password));
 }
 
 /* =========================================================
@@ -936,7 +964,7 @@ if ($page === 'forgot_password') {
         else { $pdo->prepare('UPDATE users SET password=? WHERE id=?')->execute([hash('sha256',$newPassword),$u['id']]); log_action('Alibadilisha password','Password reset ya username: '.$username); $resetDone=true; }
     }
     ?>
-    <!doctype html><html lang="sw"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Forgot Password - Zantronix</title><link rel="stylesheet" href="style.css"><style>body{background:#ffd000!important}.reset-box{max-width:430px;margin:70px auto;background:#fff;padding:28px;border-radius:16px;box-shadow:0 10px 35px rgba(0,0,0,.18)}.reset-box input{width:100%;box-sizing:border-box;margin:7px 0 15px;padding:12px;border:1px solid #ddd;border-radius:8px}.reset-box button{width:100%}
+    <!doctype html><html lang="<?=htmlspecialchars($zanLang, ENT_QUOTES, 'UTF-8')?>"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title><?=htmlspecialchars(zan_t('Umesahau Nenosiri - Zantronix','Forgot Password - Zantronix'))?></title><link rel="stylesheet" href="style.css"><style>body{background:#ffd000!important}.reset-box{max-width:430px;margin:70px auto;background:#fff;padding:28px;border-radius:16px;box-shadow:0 10px 35px rgba(0,0,0,.18)}.reset-box input{width:100%;box-sizing:border-box;margin:7px 0 15px;padding:12px;border:1px solid #ddd;border-radius:8px}.reset-box button{width:100%}
 .invoice-row .qty-minus,.invoice-row .qty-plus{min-width:38px;padding:8px 10px}.invoice-row input[name="qty[]"]{max-width:80px;text-align:center}.doc-notes p{margin:6px 0 12px;white-space:normal}.badge{display:inline-block;margin-top:8px;padding:4px 8px;border-radius:999px;font-weight:800;font-size:9px}
 </style>
 <style>
@@ -950,7 +978,7 @@ if ($page === 'forgot_password') {
 .st-photo{max-width:130px;max-height:130px;border-radius:10px;border:1px solid #ddd;object-fit:cover}
 @media(max-width:700px){.st-bar-row{grid-template-columns:100px 1fr 45px}.grid-form{grid-template-columns:1fr!important}.btn{width:100%}.st-actions .btn{width:auto;flex:1}}
 </style>
-</head><body><div class="reset-box"><h1>⚡ ZANTRONIX</h1><h2>Forgot Password</h2><?php if($resetError): ?><div class="notice"><?=htmlspecialchars($resetError)?></div><?php endif; ?><?php if($resetDone): ?><div class="notice">✓ Password imebadilishwa. Sasa unaweza kuingia.</div><a class="btn" href="index.php">Back to Login</a><?php else: ?><form method="post" enctype="multipart/form-data"><label>Username<input name="username" required></label><label>Phone Number<input name="phone" required></label><label>New Password<input type="password" name="new_password" minlength="6" required></label><label>Confirm Password<input type="password" name="confirm_password" minlength="6" required></label><button class="btn" type="submit">Reset Password</button></form><br><a class="btn black" href="index.php">Back to Login</a><?php endif; ?></div>
+</head><body><div class="reset-box"><h1>⚡ ZANTRONIX</h1><h2><?=htmlspecialchars(zan_t('Umesahau Nenosiri','Forgot Password'))?></h2><?php if($resetError): ?><div class="notice"><?=htmlspecialchars($resetError)?></div><?php endif; ?><?php if($resetDone): ?><div class="notice">✓ <?=htmlspecialchars(zan_t('Nenosiri limebadilishwa. Sasa unaweza kuingia.','Password changed. You can now log in.'))?></div><a class="btn" href="index.php"><?=htmlspecialchars(zan_t('Rudi Kuingia','Back to Login'))?></a><?php else: ?><form method="post" enctype="multipart/form-data"><label><?=htmlspecialchars(zan_t('Jina la mtumiaji','Username'))?><input name="username" required></label><label><?=htmlspecialchars(zan_t('Namba ya simu','Phone Number'))?><input name="phone" required></label><label><?=htmlspecialchars(zan_t('Nenosiri jipya','New Password'))?><input type="password" name="new_password" minlength="6" required></label><label><?=htmlspecialchars(zan_t('Thibitisha Nenosiri','Confirm Password'))?><input type="password" name="confirm_password" minlength="6" required></label><button class="btn" type="submit"><?=htmlspecialchars(zan_t('Weka Upya Nenosiri','Reset Password'))?></button></form><br><a class="btn black" href="index.php"><?=htmlspecialchars(zan_t('Rudi Kuingia','Back to Login'))?></a><?php endif; ?></div>
 <script>
 document.addEventListener('DOMContentLoaded',function(){
  document.querySelectorAll('input[type=file][accept*="image"]').forEach(function(i){
@@ -980,16 +1008,10 @@ if (!isset($_SESSION['user'])) {
 
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
-        $s = $pdo->prepare(
-            'SELECT * FROM users WHERE username=? AND password=? AND active=1 LIMIT 1'
-        );
-
-        $s->execute([
-            $_POST['username'] ?? '',
-            hash('sha256', $_POST['password'] ?? '')
-        ]);
-
+        $s = $pdo->prepare('SELECT * FROM users WHERE username=? AND active=1 LIMIT 1');
+        $s->execute([trim((string)($_POST['username'] ?? ''))]);
         $u = $s->fetch();
+        if($u && !zan_password_verify($_POST['password'] ?? '',$u['password'] ?? '')) $u=false;
 
         if ($u && $u['active']) {
 
@@ -1054,7 +1076,7 @@ $hasTools = $isSuperAdmin
 
     // Hana ruhusa ya mfumo wowote.
     http_response_code(403);
-    exit('Huna ruhusa ya kutumia mfumo.');
+    zan_access_denied('Huna ruhusa ya kutumia mfumo.');
 }
         }
 
@@ -1064,7 +1086,7 @@ $hasTools = $isSuperAdmin
     }
 ?>
 <!doctype html>
-<html lang="sw">
+<html lang="<?=htmlspecialchars($zanLang, ENT_QUOTES, 'UTF-8')?>">
 
 <head>
 
@@ -1073,7 +1095,7 @@ $hasTools = $isSuperAdmin
 <meta name="viewport"
       content="width=device-width,initial-scale=1">
 
-<title>Kuingia - Zantronix</title>
+<title><?=htmlspecialchars(zan_t('Kuingia - Zantronix','Login - Zantronix'))?></title>
 
 <link rel="stylesheet"
       href="style.css">
@@ -1107,7 +1129,7 @@ $hasTools = $isSuperAdmin
 <form method="post" enctype="multipart/form-data" autocomplete="off">
 
 <label>
-Jina la mtumiaji
+<?=htmlspecialchars(zan_t('Jina la mtumiaji','Username'))?>
 
 <input
     class="search"
@@ -1119,7 +1141,7 @@ Jina la mtumiaji
 </label>
 
 <label>
-Nenosiri
+<?=htmlspecialchars(zan_t('Nenosiri','Password'))?>
 
 <input
     class="search"
@@ -1136,12 +1158,12 @@ Nenosiri
     class="btn"
     style="width:100%"
 >
-INGIA
+<?=htmlspecialchars(zan_t('INGIA','LOGIN'))?>
 </button>
 
 </form>
 
-<p style="text-align:center;margin-top:15px"><a href="?page=forgot_password">Forgot Password?</a></p>
+<p style="text-align:center;margin-top:15px"><a href="?page=forgot_password"><?=htmlspecialchars(zan_t('Umesahau Nenosiri?','Forgot Password?'))?></a></p>
 
 </div>
 
@@ -1210,6 +1232,17 @@ $pdo->exec("CREATE TABLE IF NOT EXISTS st_site_tasks (
  notes TEXT, status TEXT DEFAULT 'Pending', assigned_to INTEGER, completed_by TEXT,
  completed_at TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP
 )");
+$pdo->exec("CREATE TABLE IF NOT EXISTS st_team_change_requests (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ site_id INTEGER NOT NULL,
+ requester_id INTEGER NOT NULL,
+ technician_id INTEGER NOT NULL,
+ reason TEXT NOT NULL,
+ status TEXT DEFAULT 'Pending',
+ reviewed_by TEXT,
+ reviewed_at TEXT,
+ created_at TEXT DEFAULT CURRENT_TIMESTAMP
+)");
 $pdo->exec("CREATE TABLE IF NOT EXISTS st_daily_updates (
  id INTEGER PRIMARY KEY AUTOINCREMENT, site_id INTEGER NOT NULL, technician_id INTEGER NOT NULL,
  update_date TEXT NOT NULL, work_done TEXT NOT NULL, blockers TEXT, next_steps TEXT,
@@ -1218,7 +1251,7 @@ $pdo->exec("CREATE TABLE IF NOT EXISTS st_daily_updates (
 )");
 $pdo->exec("CREATE TABLE IF NOT EXISTS st_notifications (
  id INTEGER PRIMARY KEY AUTOINCREMENT, technician_id INTEGER, notification_type TEXT NOT NULL,
- message TEXT NOT NULL, channel TEXT DEFAULT 'whatsapp', status TEXT DEFAULT 'Pending',
+ recipient_user_id INTEGER, recipient_type TEXT DEFAULT 'technician', message TEXT NOT NULL, channel TEXT DEFAULT 'whatsapp', status TEXT DEFAULT 'Pending',
  sent_at TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP
 )");
 $pdo->exec("CREATE TABLE IF NOT EXISTS st_tool_requests (
@@ -1238,6 +1271,11 @@ $pdo->exec("CREATE TABLE IF NOT EXISTS st_material_funds (
  receipt_longitude REAL, receipt_accuracy REAL, granted_by TEXT, granted_at TEXT DEFAULT CURRENT_TIMESTAMP,
  created_at TEXT DEFAULT CURRENT_TIMESTAMP
 )");
+$pdo->exec("CREATE TABLE IF NOT EXISTS st_evidence_photos (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ entity_type TEXT NOT NULL, entity_id INTEGER NOT NULL, category TEXT NOT NULL,
+ photo TEXT NOT NULL, uploaded_by TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP
+)");
 
 /* Extra columns for old databases. */
 function st_add_column($pdo,$table,$column,$definition){
@@ -1247,6 +1285,8 @@ function st_add_column($pdo,$table,$column,$definition){
         $pdo->exec("ALTER TABLE $table ADD COLUMN $column $definition");
     } catch(Throwable $e) {}
 }
+st_add_column($pdo,'st_notifications','recipient_user_id','INTEGER');
+st_add_column($pdo,'st_notifications','recipient_type','TEXT DEFAULT \'technician\'');
 st_add_column($pdo,'st_technicians','user_id','INTEGER');
 st_add_column($pdo,'st_technicians','username','TEXT');
 st_add_column($pdo,'st_technicians','office','TEXT');
@@ -1276,6 +1316,7 @@ st_add_column($pdo,'st_material_movements','technical_comment','TEXT');
 st_add_column($pdo,'st_material_movements','received_photo','TEXT');
 st_add_column($pdo,'st_sites','completion_notes','TEXT');
 st_add_column($pdo,'st_sites','completion_photo','TEXT');
+st_add_column($pdo,'st_sites','jobcard_photo','TEXT');
 st_add_column($pdo,'st_sites','completion_submitted_at','TEXT');
 st_add_column($pdo,'st_sites','completion_submitted_by','TEXT');
 st_add_column($pdo,'st_sites','admin_approved','INTEGER DEFAULT 0');
@@ -1347,6 +1388,23 @@ function st_queue_whatsapp_notification($pdo,$technicianId,$type,$message){
     $q->execute([(int)$technicianId,$type,$message]);
     if(!$q->fetch())$pdo->prepare('INSERT INTO st_notifications(technician_id,notification_type,message) VALUES(?,?,?)')->execute([(int)$technicianId,$type,$message]);
 }
+function st_notify_site_admins($pdo,$type,$message){
+    $admins=$pdo->query("SELECT DISTINCT u.id FROM users u LEFT JOIN st_site_admins sa ON sa.user_id=u.id WHERE u.active=1 AND (LOWER(u.role) IN ('admin','msimamizi','manager','meneja','technical manager','technical_manager','technicalmanager','site admin','site_admin') OR LOWER(u.role) LIKE '%super%') AND (u.account_system IN ('site','both') OR sa.id IS NOT NULL)")->fetchAll(PDO::FETCH_COLUMN);
+    $insert=$pdo->prepare("INSERT INTO st_notifications(recipient_user_id,recipient_type,notification_type,message,channel,status) VALUES(?,'site_admin',?,?, 'whatsapp','Pending')");
+    foreach($admins as $adminId){
+        $exists=$pdo->prepare("SELECT id FROM st_notifications WHERE recipient_user_id=? AND recipient_type='site_admin' AND notification_type=? AND message=? AND date(created_at)=date('now') LIMIT 1");
+        $exists->execute([(int)$adminId,$type,$message]);
+        if(!$exists->fetchColumn())$insert->execute([(int)$adminId,$type,$message]);
+    }
+}
+function st_user_notifications($pdo,$userId,$limit=20){
+    $q=$pdo->prepare("SELECT n.*,u.phone FROM st_notifications n LEFT JOIN users u ON u.id=n.recipient_user_id WHERE n.recipient_type='site_admin' AND n.recipient_user_id=? ORDER BY n.id DESC LIMIT ".(int)$limit);
+    $q->execute([(int)$userId]);return $q->fetchAll(PDO::FETCH_ASSOC);
+}
+function st_technician_notifications($pdo,$technicianId,$limit=20){
+    $q=$pdo->prepare("SELECT * FROM st_notifications WHERE technician_id=? AND (recipient_type='technician' OR recipient_type IS NULL) ORDER BY id DESC LIMIT ".(int)$limit);
+    $q->execute([(int)$technicianId]);return $q->fetchAll(PDO::FETCH_ASSOC);
+}
 function st_csrf_token(){
     if(empty($_SESSION['st_csrf_token']))$_SESSION['st_csrf_token']=bin2hex(random_bytes(32));
     return $_SESSION['st_csrf_token'];
@@ -1413,6 +1471,28 @@ function st_upload_photo($field){
         return 'uploads/site_tracking/'.$name;
     return null;
 }
+function st_upload_photos($field){
+    $photos=[];
+    if(empty($_FILES[$field]['name']) || !is_array($_FILES[$field]['name'])) return $photos;
+    $files=$_FILES[$field];
+    foreach($files['name'] as $i=>$name){
+        if((int)($files['error'][$i]??UPLOAD_ERR_NO_FILE)!==UPLOAD_ERR_OK) continue;
+        $_FILES[$field]=[
+            'name'=>$files['name'][$i], 'type'=>$files['type'][$i]??'',
+            'tmp_name'=>$files['tmp_name'][$i], 'error'=>$files['error'][$i],
+            'size'=>$files['size'][$i]??0
+        ];
+        $photo=st_upload_photo($field);
+        if($photo)$photos[]=$photo;
+    }
+    $_FILES[$field]=$files;
+    return $photos;
+}
+function st_save_evidence_photos($pdo,$entityType,$entityId,$category,$photos,$uploadedBy){
+    if(!$photos)return;
+    $q=$pdo->prepare('INSERT INTO st_evidence_photos(entity_type,entity_id,category,photo,uploaded_by) VALUES(?,?,?,?,?)');
+    foreach($photos as $photo)$q->execute([$entityType,(int)$entityId,$category,$photo,$uploadedBy]);
+}
 function st_flash($msg){ $_SESSION['st_flash']=$msg; }
 function st_redirect($page){ header('Location:index.php?page='.$page); exit; }
 function st_site_team_ids($pdo,$siteId){
@@ -1443,6 +1523,26 @@ if(isset($_SESSION['user']) && ($_SERVER['REQUEST_METHOD']??'')==='POST'
 
     try{
     if(!hash_equals(st_csrf_token(),(string)($_POST['st_csrf']??'')))throw new Exception('Session security token is invalid. Refresh the page and try again.');
+        if($a==='st_change_own_password'){
+            $currentPassword=(string)($_POST['current_password']??'');
+            $newPassword=(string)($_POST['new_password']??'');
+            $confirmPassword=(string)($_POST['confirm_password']??'');
+            if($currentPassword===''||$newPassword===''||$newPassword!==$confirmPassword||strlen($newPassword)<6)throw new Exception('Password mpya lazima iwe na herufi 6 au zaidi na zifanane.');
+            $q=$pdo->prepare('SELECT password FROM users WHERE id=? AND active=1 LIMIT 1');$q->execute([(int)$_SESSION['user']['id']]);$hash=$q->fetchColumn();
+            if(!$hash||!zan_password_verify($currentPassword,$hash))throw new Exception('Password ya sasa si sahihi.');
+            $update=$pdo->prepare('UPDATE users SET password=? WHERE id=? AND active=1');
+            $update->execute([zan_password_hash($newPassword),(int)$_SESSION['user']['id']]);
+            if($update->rowCount()!==1)throw new Exception('Password haikuhifadhiwa. Jaribu tena.');
+            st_flash('Password imebadilishwa.');st_redirect('st_portal');
+        }
+        if($a==='st_save_settings'){
+            if(!st_is_admin())throw new Exception('Only Site Tracking administrators can change settings.');
+            $timeout=(int)($_POST['timeout_minutes']??30);
+            if(!in_array($timeout,[15,30,60,120],true))$timeout=30;
+            $_SESSION['st_timeout_minutes']=$timeout;
+            $_SESSION['st_last_activity']=time();
+            st_flash('Site Tracking settings zimehifadhiwa.');st_redirect('st_settings');
+        }
         /* ---------- TECHNICIANS ---------- */
         if($a==='st_save_technician'){
             if(!st_is_admin()) throw new Exception('Only Administrator can save technicians.');
@@ -1581,6 +1681,17 @@ if(isset($_SESSION['user']) && ($_SERVER['REQUEST_METHOD']??'')==='POST'
             st_redirect('st_sites');
         }
 
+        if($a==='st_update_site_team'){
+            if(!st_is_manager()&&!st_is_admin()) throw new Exception('Only Manager or Administrator can update site team.');
+            $siteId=(int)($_POST['site_id']??0);$primaryId=(int)($_POST['primary_id']??0);$others=$_POST['team_technicians']??[];
+            if($siteId<=0||$primaryId<=0)throw new Exception('Site and primary technician are required.');
+            $q=$pdo->prepare('SELECT site_name FROM st_sites WHERE id=? LIMIT 1');$q->execute([$siteId]);$site=$q->fetch(PDO::FETCH_ASSOC);if(!$site)throw new Exception('Site not found.');
+            $q=$pdo->prepare("SELECT id,full_name FROM st_technicians WHERE id=? AND status='Active' LIMIT 1");$q->execute([$primaryId]);$primary=$q->fetch(PDO::FETCH_ASSOC);if(!$primary)throw new Exception('Primary technician is not active.');
+            st_save_site_team($pdo,$siteId,$primaryId,$others);
+            st_audit($pdo,'site',$siteId,'SITE TEAM UPDATED','Primary: '.$primary['full_name'].' | Team members: '.implode(',',array_map('intval',(array)$others)));
+            st_flash('Site team updated successfully.');st_redirect('st_sites');
+        }
+
         if($a==='st_save_site' || $a==='st_edit_site' || $a==='st_edit_site_save'){
             if(!st_is_admin()) throw new Exception('Only Administrator can save/edit sites.');
             $id=(int)($_POST['id']??0);
@@ -1631,6 +1742,31 @@ if(isset($_SESSION['user']) && ($_SERVER['REQUEST_METHOD']??'')==='POST'
             $q=$pdo->prepare('SELECT id FROM st_sites WHERE id=? LIMIT 1');$q->execute([$siteId]);if(!$q->fetch())throw new Exception('Site not found.');
             $pdo->prepare('INSERT INTO st_site_tasks(site_id,task_title,notes,assigned_to) VALUES(?,?,?,?)')->execute([$siteId,$title,$notes,$assigned?:null]);
             $taskId=(int)$pdo->lastInsertId();st_audit($pdo,'site_task',$taskId,'CREATED','Site: '.$siteId);st_flash('Site task created.');st_redirect('st_sites');
+        }
+
+        if($a==='st_request_team_change'){
+            if(!st_is_technician())throw new Exception('Only Site Leader can request a team change.');
+            $ct=st_current_technician($pdo);$siteId=(int)($_POST['site_id']??0);$technicianId=(int)($_POST['technician_id']??0);$reason=trim($_POST['reason']??'');
+            if(!$ct||$siteId<=0||$technicianId<=0||$reason==='')throw new Exception('Site, technician and reason are required.');
+            $q=$pdo->prepare('SELECT site_name,technician_id FROM st_sites WHERE id=? LIMIT 1');$q->execute([$siteId]);$site=$q->fetch(PDO::FETCH_ASSOC);
+            if(!$site||(int)$site['technician_id']!==(int)$ct['id'])throw new Exception('Only the Site Leader can request a team change.');
+            if($technicianId===(int)$ct['id'])throw new Exception('Site Leader cannot remove himself.');
+            $q=$pdo->prepare('SELECT 1 FROM st_site_technicians WHERE site_id=? AND technician_id=? LIMIT 1');$q->execute([$siteId,$technicianId]);if(!$q->fetch())throw new Exception('Technician is not assigned to this site.');
+            $q=$pdo->prepare("SELECT 1 FROM st_team_change_requests WHERE site_id=? AND technician_id=? AND status='Pending' LIMIT 1");$q->execute([$siteId,$technicianId]);if($q->fetch())throw new Exception('There is already a pending request for this technician.');
+            $pdo->prepare('INSERT INTO st_team_change_requests(site_id,requester_id,technician_id,reason) VALUES(?,?,?,?)')->execute([$siteId,(int)$ct['id'],$technicianId,$reason]);
+            st_flash('Request ya kubadilisha team imetumwa kwa Manager.');st_redirect('st_portal');
+        }
+
+        if($a==='st_review_team_change'){
+            if(!st_is_manager()&&!st_is_admin())throw new Exception('Only Manager or Administrator can review team requests.');
+            $requestId=(int)($_POST['request_id']??0);$decision=$_POST['decision']??'';
+            $q=$pdo->prepare("SELECT * FROM st_team_change_requests WHERE id=? AND status='Pending' LIMIT 1");$q->execute([$requestId]);$request=$q->fetch(PDO::FETCH_ASSOC);if(!$request)throw new Exception('Team request not found.');
+            if($decision==='approve'){
+                $pdo->prepare('DELETE FROM st_site_technicians WHERE site_id=? AND technician_id=?')->execute([(int)$request['site_id'],(int)$request['technician_id']]);
+                $status='Approved';
+            }elseif($decision==='reject'){$status='Rejected';}else throw new Exception('Invalid team request decision.');
+            $pdo->prepare('UPDATE st_team_change_requests SET status=?,reviewed_by=?,reviewed_at=CURRENT_TIMESTAMP WHERE id=?')->execute([$status,st_current_user_name(),$requestId]);
+            st_audit($pdo,'team_change_request',$requestId,'TEAM CHANGE '.$status,'Site: '.$request['site_id'].' | Technician: '.$request['technician_id']);st_flash('Team request '.$status.'.');st_redirect('st_sites');
         }
 
         if($a==='st_toggle_site_task'){
@@ -1725,6 +1861,10 @@ if(isset($_SESSION['user']) && ($_SERVER['REQUEST_METHOD']??'')==='POST'
             $pdo->prepare("INSERT INTO st_tool_movements(tool_id,technician_id,site_id,customer_name,action_type,due_date,condition_status,photo,return_photo,notes,status,created_by,latitude,longitude,accuracy,captured_at) VALUES(?,?,?,?,?,?,?,?,?,'Submitted',?,?,?,?,?,?)")
                 ->execute([$toolId,$tid,$siteId?:null,trim($_POST['customer_name']??''),$type,$_POST['due_date']??null,$_POST['condition_status']??'Good',$photo,($type==='Returned'?$photo:null),trim($_POST['notes']??''),$created,$lat,$lng,$acc,trim($_POST['captured_at']??'')?:null]);
             if($type==='Issued')$pdo->prepare("UPDATE st_tools SET status='Issued' WHERE id=?")->execute([$toolId]);if($type==='Returned')$pdo->prepare("UPDATE st_tools SET status=? WHERE id=?")->execute([($_POST['condition_status']??'Good')==='Missing'?'Missing':'Available',$toolId]);
+            if($type==='Issued'){
+                $q=$pdo->prepare('SELECT tool_name FROM st_tools WHERE id=?');$q->execute([$toolId]);$toolName=(string)$q->fetchColumn();
+                st_queue_whatsapp_notification($pdo,$tid,'tool_issued','Umepewa tool '.$toolName.' na Manager.');
+            }
             st_flash($type.' record submitted with GPS.');st_redirect(st_is_technician()?'st_portal':'st_movements');
         }
 
@@ -1738,7 +1878,24 @@ if(isset($_SESSION['user']) && ($_SERVER['REQUEST_METHOD']??'')==='POST'
             $q=$pdo->prepare("SELECT 1 FROM st_site_technicians WHERE site_id=? AND technician_id=? LIMIT 1");$q->execute([$sid,$tid]);if(!$q->fetch())throw new Exception('Selected technician is not assigned to this site.');
             $photo=st_upload_photo('photo');$lat=($_POST['latitude']??'')!==''?(float)$_POST['latitude']:null;$lng=($_POST['longitude']??'')!==''?(float)$_POST['longitude']:null;$acc=($_POST['accuracy']??'')!==''?(float)$_POST['accuracy']:null;
             $pdo->beginTransaction();try{$pdo->prepare("UPDATE st_materials SET stock=stock-? WHERE id=? AND stock>=?")->execute([$qty,$mid,$qty]);if($pdo->query('SELECT changes()')->fetchColumn()!=1)throw new Exception('Stock update failed safely.');$pdo->prepare("INSERT INTO st_material_movements(material_id,technician_id,site_id,customer_name,quantity,movement_type,photo,reason,technician_confirmed,manager_approved,technical_approved,status,created_by,manager_by,manager_at,manager_comment,latitude,longitude,accuracy,captured_at) VALUES(?,?,?,?,?,'Issued',?,?,0,1,1,'Approved',?,?,CURRENT_TIMESTAMP,?,?,?,?,?)")->execute([$mid,$tid,$sid,trim($_POST['customer_name']??''),$qty,$photo,trim($_POST['reason']??'Material issued by Manager'),$created,$created,trim($_POST['manager_comment']??''),$lat,$lng,$acc,trim($_POST['captured_at']??'')?:null]);$movementId=(int)$pdo->lastInsertId();$pdo->commit();}catch(Throwable $e){if($pdo->inTransaction())$pdo->rollBack();throw $e;}
+            $q=$pdo->prepare('SELECT material_name FROM st_materials WHERE id=?');$q->execute([$mid]);$materialName=(string)$q->fetchColumn();
+            st_queue_whatsapp_notification($pdo,$tid,'material_issued','Umepewa material '.$materialName.' ('.$qty.') na Manager. Piga picha kuthibitisha umeipokea.');
             st_audit($pdo,'material_movement',$movementId,'MATERIAL ISSUED','Qty: '.$qty.' | Technician: '.$tid.' | Site: '.$sid);st_flash('Material issued to technician successfully.');st_redirect('st_movements');
+        }
+
+        if($a==='st_confirm_material_received'){
+            if(!st_is_technician())throw new Exception('Only technicians can confirm received material.');
+            $ct=st_current_technician($pdo);if(!$ct)throw new Exception('Technician account is not linked.');
+            $movementId=(int)($_POST['movement_id']??0);$photo=st_upload_photo('received_photo');
+            if($movementId<=0||!$photo)throw new Exception('Picha ya material iliyopokelewa inahitajika.');
+            $q=$pdo->prepare("SELECT id,site_id,material_id,quantity FROM st_material_movements WHERE id=? AND technician_id=? AND movement_type='Issued' AND status='Approved' AND technician_confirmed=0 LIMIT 1");
+            $q->execute([$movementId,(int)$ct['id']]);$movement=$q->fetch(PDO::FETCH_ASSOC);
+            if(!$movement)throw new Exception('Material hii haipatikani au tayari imethibitishwa.');
+            $update=$pdo->prepare('UPDATE st_material_movements SET received_photo=?,technician_confirmed=1 WHERE id=? AND technician_id=? AND technician_confirmed=0');
+            $update->execute([$photo,$movementId,(int)$ct['id']]);
+            if($update->rowCount()!==1)throw new Exception('Material haikuhifadhiwa kama imepokelewa.');
+            st_audit($pdo,'material_movement',$movementId,'MATERIAL RECEIVED BY TECHNICIAN','Photo: '.$photo);
+            st_flash('Material imethibitishwa kuwa imepokelewa kwa picha.');st_redirect('st_portal');
         }
 
         if($a==='st_grant_material_fund'){
@@ -1760,13 +1917,14 @@ if(isset($_SESSION['user']) && ($_SERVER['REQUEST_METHOD']??'')==='POST'
         if($a==='st_submit_material_receipt'){
             if(!st_is_technician())throw new Exception('Only technicians can submit material receipts.');
             $ct=st_current_technician($pdo);if(!$ct)throw new Exception('Technician account is not linked.');
-            $fundId=(int)($_POST['fund_id']??0);$notes=trim($_POST['receipt_notes']??'');$photo=st_upload_photo('receipt_photo');
+            $fundId=(int)($_POST['fund_id']??0);$notes=trim($_POST['receipt_notes']??'');$photo=st_upload_photo('receipt_photo');$extraReceiptPhotos=st_upload_photos('receipt_photos');
             if($fundId<=0||!$photo)throw new Exception('Receipt photo is required. Use the phone camera to capture it.');
             $lat=($_POST['latitude']??'')!==''?(float)$_POST['latitude']:null;$lng=($_POST['longitude']??'')!==''?(float)$_POST['longitude']:null;$acc=($_POST['accuracy']??'')!==''?(float)$_POST['accuracy']:null;
             if($lat===null||$lng===null)throw new Exception('GPS location is required for the receipt.');
             $q=$pdo->prepare("SELECT id,site_id,amount,currency FROM st_material_funds WHERE id=? AND technician_id=? AND status='Granted' LIMIT 1");$q->execute([$fundId,(int)$ct['id']]);$fund=$q->fetch(PDO::FETCH_ASSOC);if(!$fund)throw new Exception('Material fund not found or already submitted.');
             $pdo->prepare("UPDATE st_material_funds SET status='Receipt Submitted',receipt_photo=?,receipt_notes=?,receipt_submitted_at=CURRENT_TIMESTAMP,receipt_latitude=?,receipt_longitude=?,receipt_accuracy=? WHERE id=? AND technician_id=? AND status='Granted'")
                 ->execute([$photo,$notes,$lat,$lng,$acc,$fundId,(int)$ct['id']]);
+            st_save_evidence_photos($pdo,'material_fund',$fundId,'Material Receipt',$extraReceiptPhotos,st_current_user_name());
             st_audit($pdo,'material_fund',$fundId,'MATERIAL RECEIPT SUBMITTED','Amount: '.$fund['amount'].' '.$fund['currency'].' | GPS: '.$lat.','.$lng);
             st_flash('Material purchase receipt submitted successfully.');st_redirect('st_portal');
         }
@@ -1779,7 +1937,10 @@ if(isset($_SESSION['user']) && ($_SERVER['REQUEST_METHOD']??'')==='POST'
             if($siteId<=0||$itemId<=0)throw new Exception('Site and requested item are required.');
             $table=$a==='st_request_tool'?'st_tool_requests':'st_material_requests';$itemColumn=$a==='st_request_tool'?'tool_id':'material_id';
             $pdo->prepare("INSERT INTO $table(technician_id,site_id,$itemColumn,quantity,reason) VALUES(?,?,?,?,?)")->execute([(int)$ct['id'],$siteId,$itemId,$quantity,$reason]);
-            $requestId=(int)$pdo->lastInsertId();st_audit($pdo,$a==='st_request_tool'?'tool_request':'material_request',$requestId,'SUBMITTED','Site: '.$siteId);st_flash('Request submitted to Manager.');st_redirect('st_portal');
+            $requestId=(int)$pdo->lastInsertId();
+            $q=$pdo->prepare($a==='st_request_tool'?'SELECT tool_name FROM st_tools WHERE id=?':'SELECT material_name FROM st_materials WHERE id=?');$q->execute([$itemId]);$itemName=(string)$q->fetchColumn();
+            st_notify_site_admins($pdo,$a==='st_request_tool'?'tool_request':'material_request',$ct['full_name'].' ameomba '.($a==='st_request_tool'?'tool ':'material ').$itemName.' kwa site #'.$siteId.'. Sababu: '.$reason);
+            st_audit($pdo,$a==='st_request_tool'?'tool_request':'material_request',$requestId,'SUBMITTED','Site: '.$siteId);st_flash('Request submitted to Manager.');st_redirect('st_portal');
         }
 
         if($a==='st_review_tool_request' || $a==='st_review_material_request'){
@@ -1880,7 +2041,7 @@ if(isset($_SESSION['user']) && ($_SERVER['REQUEST_METHOD']??'')==='POST'
             if(!st_is_admin())throw new Exception('Only Administrator can manage site administrators.');
             $id=(int)($_POST['id']??0); $type=$_POST['admin_type']??'Manager';
             $office=trim($_POST['office']??'');
-            $adminPermissions=[];foreach(['dashboard','technicians','sites','tools','materials','photos','movements','approvals','reports','daily_reports','activity','administration'] as $permission){if(isset($_POST['perm_'.$permission]))$adminPermissions[$permission]=1;}
+            $adminPermissions=[];foreach(['dashboard','technicians','sites','tools','materials','photos','movements','money_transfer','approvals','reports','daily_reports','activity','administration'] as $permission){if(isset($_POST['perm_'.$permission]))$adminPermissions[$permission]=1;}
             $whatsappTemplate=trim($_POST['whatsapp_template']??'');
             $passportPhoto=st_upload_photo('passport_photo');
             $username=trim($_POST['username']??''); $full=trim($_POST['full_name']??''); $password=(string)($_POST['password']??'');
@@ -1929,16 +2090,44 @@ if(isset($_SESSION['user']) && ($_SERVER['REQUEST_METHOD']??'')==='POST'
             st_flash('Administrator deleted.');st_redirect('st_administration');
         }
 
+        /* ---------- SITE HANDOVER ---------- */
+        if($a==='st_handover_site'){
+            if(!st_is_technician())throw new Exception('Only technician can hand over a site.');
+            $siteId=(int)($_POST['site_id']??0);$ct=st_current_technician($pdo);if(!$ct)throw new Exception('Technician account is not linked.');
+            $q=$pdo->prepare("SELECT s.* FROM st_sites s JOIN st_site_technicians st ON st.site_id=s.id WHERE s.id=? AND st.technician_id=? LIMIT 1");$q->execute([$siteId,(int)$ct['id']]);$site=$q->fetch(PDO::FETCH_ASSOC);
+            if(!$site)throw new Exception('You are not assigned to this site.');
+            if(($site['status']??'')==='Closed')throw new Exception('Closed site cannot be handed over again.');
+            $handoverPhoto=st_upload_photo('handover_photo');$jobcardPhoto=st_upload_photo('handover_jobcard_photo');$extraHandoverPhotos=st_upload_photos('handover_photos');
+            if(!$handoverPhoto||!$jobcardPhoto)throw new Exception('Picha ya makabidhiano na picha ya jobcard vinahitajika.');
+            $lat=($_POST['latitude']??'')!==''?(float)$_POST['latitude']:null;$lng=($_POST['longitude']??'')!==''?(float)$_POST['longitude']:null;$acc=($_POST['accuracy']??'')!==''?(float)$_POST['accuracy']:null;
+            if($lat===null||$lng===null)throw new Exception('GPS location is required for site handover.');
+            $capturedAt=trim($_POST['captured_at']??'')?:null;$notes=trim($_POST['handover_notes']??'');$user=st_current_user_name();
+            $pdo->beginTransaction();
+            try{
+                $pdo->prepare("UPDATE st_sites SET status='Pending Admin Approval',completion_notes=?,completion_photo=?,jobcard_photo=?,completion_submitted_at=CURRENT_TIMESTAMP,completion_submitted_by=?,admin_approved=0,rejection_reason=NULL,completion_latitude=?,completion_longitude=?,completion_accuracy=? WHERE id=?")
+                    ->execute([$notes,$handoverPhoto,$jobcardPhoto,$user,$lat,$lng,$acc,$siteId]);
+                $photoInsert=$pdo->prepare("INSERT INTO st_site_photos(site_id,technician_id,photo,category,caption,latitude,longitude,accuracy,captured_at,created_by) VALUES(?,?,?,?,?,?,?,?,?,?)");
+                $photoInsert->execute([$siteId,(int)$ct['id'],$handoverPhoto,'Customer Handover',$notes,$lat,$lng,$acc,$capturedAt,$user]);
+                $photoInsert->execute([$siteId,(int)$ct['id'],$jobcardPhoto,'Jobcard',$notes,$lat,$lng,$acc,$capturedAt,$user]);
+                foreach($extraHandoverPhotos as $extraPhoto)$photoInsert->execute([$siteId,(int)$ct['id'],$extraPhoto,'Customer Handover',$notes,$lat,$lng,$acc,$capturedAt,$user]);
+                st_save_evidence_photos($pdo,'site',$siteId,'Customer Handover',array_merge([$handoverPhoto],$extraHandoverPhotos),$user);
+                st_save_evidence_photos($pdo,'site',$siteId,'Jobcard',[$jobcardPhoto],$user);
+                $pdo->commit();
+            }catch(Throwable $e){if($pdo->inTransaction())$pdo->rollBack();throw $e;}
+            st_audit($pdo,'site',$siteId,'SITE HANDOVER SUBMITTED','Jobcard and handover photos submitted.');st_flash('Makabidhiano ya site yametumwa kwa Admin approval.');st_redirect('st_portal');
+        }
+
         /* ---------- SITE COMPLETION ---------- */
         if($a==='st_complete_site'){
             if(!st_is_technician())throw new Exception('Only technician can complete a site.');
             $siteId=(int)($_POST['site_id']??0);$ct=st_current_technician($pdo);if(!$ct)throw new Exception('Technician account is not linked.');
             $q=$pdo->prepare("SELECT 1 FROM st_site_technicians WHERE site_id=? AND technician_id=? LIMIT 1");$q->execute([$siteId,$ct['id']]);
             if(!$q->fetch())throw new Exception('You are not assigned to this site.');
-            $photo=st_upload_photo('completion_photo');if(!$photo)throw new Exception('Completion photo is required.');
+            $photo=st_upload_photo('completion_photo');$jobcardPhoto=st_upload_photo('jobcard_photo');$extraJobcardPhotos=st_upload_photos('jobcard_photos');if(!$photo||!$jobcardPhoto)throw new Exception('Completion photo na picha ya jobcard vinahitajika.');
             $lat=($_POST['latitude']??'')!==''?(float)$_POST['latitude']:null;$lng=($_POST['longitude']??'')!==''?(float)$_POST['longitude']:null;$acc=($_POST['accuracy']??'')!==''?(float)$_POST['accuracy']:null;if($lat===null||$lng===null)throw new Exception('GPS location is required for completion report.');
-            $pdo->prepare("UPDATE st_sites SET status='Pending Admin Approval',completion_notes=?,completion_photo=?,completion_submitted_at=CURRENT_TIMESTAMP,completion_submitted_by=?,admin_approved=0,completion_latitude=?,completion_longitude=?,completion_accuracy=? WHERE id=?")
-                ->execute([trim($_POST['completion_notes']??''),$photo,st_current_user_name(),$lat,$lng,$acc,$siteId]);
+            $pdo->prepare("UPDATE st_sites SET status='Pending Admin Approval',completion_notes=?,completion_photo=?,jobcard_photo=?,completion_submitted_at=CURRENT_TIMESTAMP,completion_submitted_by=?,admin_approved=0,completion_latitude=?,completion_longitude=?,completion_accuracy=? WHERE id=?")
+                ->execute([trim($_POST['completion_notes']??''),$photo,$jobcardPhoto,st_current_user_name(),$lat,$lng,$acc,$siteId]);
+            st_save_evidence_photos($pdo,'site',$siteId,'Jobcard',$extraJobcardPhotos,st_current_user_name());
             st_audit($pdo,'site',$siteId,'SITE COMPLETION SUBMITTED');st_flash('Site completion submitted for Admin approval.');st_redirect('st_portal');
         }
 
@@ -1977,10 +2166,10 @@ if (isset($_SESSION['user'])) {
     $isBusinessAdmin=in_array($roleLower,['admin','msimamizi'],true);
     $canBusinessSystem=$isSuperAdmin||(($accountSystem==='business'||$accountSystem==='both')&&($isBusinessAdmin||!empty($systemPerms['business_system'])));
     $canSiteTrackingSystem=$isSuperAdmin||(($accountSystem==='site'||$accountSystem==='both')&&!empty($systemPerms['site_tracking_system']));
-    $stPagesGuard=['site_tracking','st_portal','st_administration','st_technicians','st_sites','st_tools','st_materials','st_material_report','st_movements','st_approvals','st_site_gallery','st_reports','st_activity','st_daily_reports'];
-    if(in_array($page,$stPagesGuard,true)&&!$canSiteTrackingSystem){http_response_code(403);exit('Huna ruhusa ya kutumia Site Tracking System.');}
-    if(isset($_GET['system'])&&$_GET['system']==='business'&&!$canBusinessSystem){http_response_code(403);exit('Huna ruhusa ya kutumia Business System.');}
-    if(!$canBusinessSystem&&!$isSuperAdmin&&!in_array($page,$stPagesGuard,true)&&$page!=='choose_system'){http_response_code(403);exit('Huna ruhusa ya kutumia Business System.');}
+    $stPagesGuard=['site_tracking','st_portal','st_settings','st_administration','st_technicians','st_sites','st_tools','st_materials','st_material_report','st_movements','st_money_transfer','st_approvals','st_site_gallery','st_reports','st_activity','st_daily_reports'];
+    if(in_array($page,$stPagesGuard,true)&&!$canSiteTrackingSystem){zan_access_denied('Huna ruhusa ya kutumia Site Tracking System.');}
+    if(isset($_GET['system'])&&$_GET['system']==='business'&&!$canBusinessSystem){zan_access_denied('Huna ruhusa ya kutumia Business System.');}
+    if(!$canBusinessSystem&&!$isSuperAdmin&&!in_array($page,$stPagesGuard,true)&&$page!=='choose_system'){zan_access_denied('Huna ruhusa ya kutumia Business System.');}
 }
 
 /* =========================================================
@@ -2002,7 +2191,7 @@ if (isset($_SESSION['user'])) {
         $guardPerms=json_decode($_SESSION['user']['permissions'] ?? '{}', true);
         if(!is_array($guardPerms)) $guardPerms=[];
         $guardBusiness=in_array($guardRole,['super admin','super_admin','superadmin','admin','msimamizi'],true) || !empty($guardPerms['business_system']);
-        if(!$guardBusiness && !can_do($permissionMap[$page])) { http_response_code(403); exit('Huna ruhusa ya kutumia sehemu hii.'); }
+        if(!$guardBusiness && !can_do($permissionMap[$page])) { zan_access_denied('Huna ruhusa ya kutumia sehemu hii.'); }
     }
 }
 
@@ -2010,12 +2199,20 @@ if (isset($_SESSION['user'])) {
    /* =========================================================
    SITE TRACKING SYSTEM PAGES
    ========================================================= */
-$stPages=['site_tracking','st_portal','st_administration','st_technicians','st_sites','st_tools','st_materials','st_material_report','st_movements','st_approvals','st_site_gallery','st_reports','st_activity','st_daily_reports'];
+$stPages=['site_tracking','st_portal','st_settings','st_administration','st_technicians','st_sites','st_tools','st_materials','st_material_report','st_movements','st_money_transfer','st_approvals','st_site_gallery','st_reports','st_activity','st_daily_reports'];
+
+if(st_is_technician() && $page==='site_tracking'){
+    header('Location:index.php?page=st_portal');
+    exit;
+}
+if(st_is_technician() && !in_array($page,['st_portal','st_movements','st_site_gallery'],true) && in_array($page,$stPages,true)){
+    zan_access_denied('Fundi anaweza kuona taarifa zake tu kupitia Technician Portal.');
+}
 
 if(isset($_SESSION['user'])&&!st_is_technician()&&in_array($page,$stPages,true)){
-    $stPermissionMap=['site_tracking'=>'dashboard','st_administration'=>'administration','st_technicians'=>'technicians','st_sites'=>'sites','st_tools'=>'tools','st_materials'=>'materials','st_material_report'=>'materials','st_movements'=>'movements','st_approvals'=>'approvals','st_site_gallery'=>'photos','st_reports'=>'reports','st_activity'=>'activity','st_daily_reports'=>'daily_reports'];
+    $stPermissionMap=['site_tracking'=>'dashboard','st_settings'=>'administration','st_administration'=>'administration','st_technicians'=>'technicians','st_sites'=>'sites','st_tools'=>'tools','st_materials'=>'materials','st_material_report'=>'materials','st_movements'=>'movements','st_money_transfer'=>'money_transfer','st_approvals'=>'approvals','st_site_gallery'=>'photos','st_reports'=>'reports','st_activity'=>'activity','st_daily_reports'=>'daily_reports'];
     $requiredPermission=$stPermissionMap[$page]??'dashboard';
-    if(!st_admin_can($pdo,$requiredPermission)){http_response_code(403);exit('Huna ruhusa ya kuona sehemu hii ya Site Tracking.');}
+    if(!st_admin_can($pdo,$requiredPermission)){zan_access_denied('Huna ruhusa ya kuona sehemu hii ya Site Tracking.');}
 }
 
 if(in_array($page,$stPages,true)){
@@ -2064,7 +2261,7 @@ if(in_array($page,$stPages,true)){
 
     ?>
 <!doctype html>
-<html lang="<?=st_e($zanLang)?>">
+<html lang="<?=htmlspecialchars($zanLang, ENT_QUOTES, 'UTF-8')?>">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -2085,6 +2282,7 @@ body{margin:0;background:#f4f6f8;font-family:Arial,sans-serif;color:#222}
 .grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:18px}
 .field{margin-bottom:10px}.field input,.field select,.field textarea{width:100%;box-sizing:border-box;padding:10px;border:1px solid #ccc;border-radius:7px}
 .field select[multiple]{min-height:130px}
+.camera-field{display:block;padding:12px;border:1px dashed #aaa;border-radius:8px;background:#fafafa;font-weight:700;cursor:pointer}.phone-camera{display:none}.real-camera-button{margin-top:8px}.camera-result{display:block;margin-top:8px;color:#087f23;font-size:12px}.camera-modal{position:fixed;inset:0;z-index:1000;display:none;place-items:center;background:rgba(0,0,0,.78);padding:16px}.camera-modal.open{display:grid}.camera-box{width:min(520px,100%);background:#fff;border-radius:12px;padding:14px}.camera-box video{display:block;width:100%;max-height:65vh;object-fit:cover;background:#111;border-radius:8px}.camera-actions{display:flex;gap:8px;margin-top:10px}.camera-actions button{flex:1}
 .btn{display:inline-block;padding:9px 13px;border:0;border-radius:7px;background:#ffd000;color:#111;font-weight:bold;cursor:pointer;text-decoration:none}
 .btn.danger{background:#e53935;color:#fff}.btn.dark{background:#222;color:#fff}.btn.small{padding:6px 9px;font-size:12px}
 .notice{padding:12px;background:#e7f7ea;border-radius:8px;margin-bottom:14px}
@@ -2102,6 +2300,8 @@ img.passport{width:55px;height:55px;object-fit:cover;border-radius:50%}
 .dash-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;margin-top:18px}.dash-panel{min-width:0}.dash-kpi{border-left:5px solid #ffd000}.dash-kpi .label{font-size:12px;color:#666;text-transform:uppercase;letter-spacing:.04em}.dash-kpi .value{font-size:30px;font-weight:800;margin-top:5px}.dash-actions{display:flex;gap:8px;flex-wrap:wrap;margin:18px 0}.dash-actions .btn{font-size:13px}.alert-row{display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid #eee}.alert-row:last-child{border-bottom:0}.progress-line{display:flex;align-items:center;gap:10px;margin:11px 0}.progress-line span:first-child{width:145px}.progress-track{height:10px;flex:1;background:#eee;border-radius:99px;overflow:hidden}.progress-fill{height:100%;background:#2563eb;border-radius:99px}
 .overdue-row{background:#fff0f0!important;color:#9b1c1c}.warning-row{background:#fff8df!important;color:#7a5800}.ok-row{background:#effaf1!important;color:#176b2c}.wa-btn{background:#25d366!important;color:#fff!important}
 .photo-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:18px}.photo-card{background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:12px;box-shadow:0 2px 10px rgba(0,0,0,.06)}.gallery-photo{width:100%;height:190px;object-fit:cover;border-radius:10px;border:1px solid #ddd}.gps-status{margin-left:8px}.gps-ready{color:#087f23;font-weight:bold}.gps-error{color:#b42318;font-weight:bold}
+.team-editor{position:relative;display:inline-block}.team-editor summary{list-style:none}.team-editor summary::-webkit-details-marker{display:none}.team-editor-form{position:absolute;right:0;top:38px;z-index:15;width:240px;padding:12px;background:#fff;border:1px solid #ddd;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.16)}.team-editor-form strong,.team-editor-form label{display:block;margin-bottom:8px}.team-editor-form input{width:auto}
+.quick-icon{min-width:32px;text-align:center;padding:7px!important}.actions .quick-icon{font-size:16px}
 @media(max-width:760px){.st-layout{display:block}.st-side{width:auto;display:flex;overflow:auto;padding:8px}.st-side a{white-space:nowrap}.st-main{padding:12px}.st-head{font-size:13px}.profile{grid-template-columns:1fr}table{min-width:850px}}
 </style>
 </head>
@@ -2130,11 +2330,13 @@ img.passport{width:55px;height:55px;object-fit:cover;border-radius:50%}
         <?php if(st_admin_can($pdo,'materials')):?><details><summary>📦 Materials</summary><a href="?page=st_materials">Materials</a><a href="?page=st_movements">Manager Issues Material</a><a href="?page=st_movements">Fundi Receives / Material Used</a><a href="?page=st_material_report">Usage History</a></details><?php endif;?>
         <?php if(st_admin_can($pdo,'photos')):?><details><summary>📸 Site Photos</summary><a href="?page=st_site_gallery">Arrival / Before Work</a><a href="?page=st_site_gallery">Work Progress / Material Used</a><a href="?page=st_site_gallery">Completed / Problem / Exit</a><a href="?page=st_site_gallery">Customer Handover</a></details><a href="?page=st_site_gallery">🗺️ GPS / Site Map</a><?php endif;?>
         <?php if(st_admin_can($pdo,'movements')):?><details><summary>🔄 Movements</summary><a href="?page=st_movements">Tool Movements</a><a href="?page=st_movements">Material Movements</a></details><?php endif;?>
+        <?php if(st_admin_can($pdo,'money_transfer')):?><a href="?page=st_money_transfer">💸 Money Transfer</a><?php endif;?>
         <?php if(st_admin_can($pdo,'approvals')):?><a href="?page=st_approvals">✅ Approvals</a><?php endif;?>
         <?php if(st_admin_can($pdo,'reports')):?><a href="?page=st_reports">📊 Reports</a><?php endif;?>
         <?php if(st_admin_can($pdo,'daily_reports')):?><a href="?page=st_daily_reports">📚 Daily Reports</a><?php endif;?>
         <?php if(st_admin_can($pdo,'activity')):?><a href="?page=st_activity">📝 Activity / Audit History</a><?php endif;?>
         <?php if(st_admin_can($pdo,'administration')):?><a href="?page=st_administration">🏢 Administration</a><?php endif;?>
+        <?php if(st_admin_can($pdo,'administration')):?><a href="?page=st_settings">⚙️ <?=zan_t('Mipangilio','Settings')?></a><?php endif;?>
 <?php endif;?>
 </aside>
 
@@ -2145,13 +2347,18 @@ img.passport{width:55px;height:55px;object-fit:cover;border-radius:50%}
 
   <?php
   $tid=(int)$ct['id'];
-  $q=$pdo->prepare("SELECT s.*,GROUP_CONCAT(t.full_name, ', ') AS team_names
-                    FROM st_sites s
-                    LEFT JOIN st_site_technicians st ON st.site_id=s.id
-                    LEFT JOIN st_technicians t ON t.id=st.technician_id
+    $q=$pdo->prepare("SELECT s.*,leader.full_name AS leader_name,
+                                        GROUP_CONCAT(CASE WHEN team.id<>s.technician_id THEN team.full_name END, ', ') AS team_names
+                                        FROM st_sites s
+                                        LEFT JOIN st_technicians leader ON leader.id=s.technician_id
+                                        LEFT JOIN st_site_technicians members ON members.site_id=s.id
+                                        LEFT JOIN st_technicians team ON team.id=members.technician_id
                     WHERE s.id IN (SELECT site_id FROM st_site_technicians WHERE technician_id=?)
-                    GROUP BY s.id ORDER BY s.id DESC");
+                                        GROUP BY s.id ORDER BY s.id DESC");
   $q->execute([$tid]);$mySites=$q->fetchAll(PDO::FETCH_ASSOC);
+
+    $q=$pdo->prepare("SELECT t.*,s.site_name FROM st_site_tasks t JOIN st_sites s ON s.id=t.site_id WHERE t.assigned_to=? AND t.site_id IN (SELECT site_id FROM st_site_technicians WHERE technician_id=?) ORDER BY t.id DESC LIMIT 50");
+    $q->execute([$tid,$tid]);$myTasks=$q->fetchAll(PDO::FETCH_ASSOC);
 
   $q=$pdo->prepare("SELECT tm.*,t.tool_name,t.tool_code,s.site_name
                     FROM st_tool_movements tm
@@ -2170,8 +2377,11 @@ img.passport{width:55px;height:55px;object-fit:cover;border-radius:50%}
     $q->execute([$tid]);$myMaterialFunds=$q->fetchAll(PDO::FETCH_ASSOC);
     $q=$pdo->prepare("SELECT u.*,s.site_name FROM st_daily_updates u JOIN st_sites s ON s.id=u.site_id WHERE u.technician_id=? ORDER BY u.update_date DESC LIMIT 30");
     $q->execute([$tid]);$myDailyUpdates=$q->fetchAll(PDO::FETCH_ASSOC);
+    $myNotifications=st_technician_notifications($pdo,$tid);
   ?>
   <h2>👷 <?=zan_t('Technician Portal','Technician Portal')?></h2>
+
+    <?php if($myNotifications): ?><div class="panel"><h3>🔔 Notifications</h3><?php foreach($myNotifications as $notification):?><div class="alert-row"><span><?=st_e($notification['message'])?></span><small><?=st_e($notification['created_at'])?></small></div><?php endforeach;?></div><?php endif; ?>
 
   <div class="panel profile">
     <div>
@@ -2181,6 +2391,7 @@ img.passport{width:55px;height:55px;object-fit:cover;border-radius:50%}
       <h2 style="margin-top:0"><?=st_e($ct['full_name'])?></h2>
       <p><b>Technician No:</b> <?=st_e($ct['technician_no'])?></p>
       <p><b>Username:</b> <?=st_e($ct['username'])?></p>
+    <p><b>Password:</b> ******** <small class="muted">(haionyeshwi kwa usalama)</small></p>
       <p><b>Phone:</b> <?=st_e($ct['phone'])?></p>
     <p><b>Office:</b> <?=st_e($ct['office']??'')?></p>
     <p><b>Jinsia:</b> <?=st_e($ct['gender']??'')?></p>
@@ -2191,24 +2402,60 @@ img.passport{width:55px;height:55px;object-fit:cover;border-radius:50%}
     </div>
   </div>
 
+    <div class="panel">
+        <h3>🔐 Badilisha Password</h3>
+        <p class="muted">Password ya sasa haiwezi kuonyeshwa kwa sababu imehifadhiwa kwa usalama. Unaweza kuweka password mpya hapa.</p>
+        <form method="post" class="grid2">
+            <input type="hidden" name="st_action" value="st_change_own_password">
+            <input type="hidden" name="st_csrf" value="<?=st_e(st_csrf_token())?>">
+            <div class="field"><input type="password" name="current_password" placeholder="Password ya sasa" required></div>
+            <div class="field"><input type="password" name="new_password" minlength="6" placeholder="Password mpya" required></div>
+            <div class="field"><input type="password" name="confirm_password" minlength="6" placeholder="Thibitisha password mpya" required></div>
+            <div><button class="btn" type="submit">HIFADHI PASSWORD</button></div>
+        </form>
+    </div>
+
   <h3>🏗️ <?=zan_t('Sites ulizopewa','Assigned Sites')?></h3>
   <div class="table-wrap panel"><table>
-    <tr><th>Site</th><th>Customer</th><th>Location</th><th>Team</th><th>Status</th><th>Action</th></tr>
+    <tr><th>Site</th><th>Customer</th><th>Location</th><th>Site Leader</th><th>Other Technicians</th><th>Status</th><th>Action</th></tr>
     <?php foreach($mySites as $s):?>
       <tr>
         <td><?=st_e($s['site_name'])?></td><td><?=st_e($s['customer_name'])?></td><td><?=st_e($s['location'])?></td>
-        <td><?=st_e($s['team_names']??$ct['full_name'])?></td><td><span class="status"><?=st_e($s['status'])?></span></td>
-        <td><?php if($s['status']!=='Closed'):?><form method="post" enctype="multipart/form-data" class="actions">
+        <td><?=st_e($s['leader_name']??$ct['full_name'])?></td><td><?=st_e($s['team_names']?:'Hakuna wengine')?></td><td><span class="status"><?=st_e($s['status'])?></span></td>
+        <td><?php if($s['status']!=='Closed'):?><form method="post" enctype="multipart/form-data" class="actions gps-form">
           <input type="hidden" name="st_action" value="st_complete_site"><input type="hidden" name="site_id" value="<?=$s['id']?>">
-          <input type="file" name="completion_photo" accept="image/*" capture="environment" required>
+          <label class="camera-field">📷 Picha ya kumaliza kazi<input class="phone-camera" type="file" name="completion_photo" accept="image/*" capture="environment" required></label>
+          <div class="photo-upload-list" data-photo-list="jobcard_photos"><label class="camera-field">🧾 Picha ya Jobcard iliyosainiwa<input class="phone-camera" type="file" name="jobcard_photo" accept="image/*" capture="environment" required></label></div>
+          <button type="button" class="btn small add-photo-btn" data-photo-target="jobcard_photos" data-photo-name="jobcard_photos[]">➕ ONGEZA PICHA YA JOBCARD</button>
           <input type="hidden" name="latitude" class="gps-lat"><input type="hidden" name="longitude" class="gps-lng"><input type="hidden" name="accuracy" class="gps-accuracy"><input type="hidden" name="captured_at" class="gps-time">
           <button type="button" class="btn gps-btn">📍 <?=zan_t('Pata Location','Get Location')?></button> <span class="gps-status small"><?=zan_t('Location bado haijapatikana','Location not captured yet')?></span>
           <input name="completion_notes" placeholder="Completion notes" required>
           <button class="btn">SUBMIT COMPLETION</button>
-        </form><?php endif;?></td>
+                </form>
+                <?php if($s['status']!=='Closed'):?><details style="margin-top:10px"><summary class="btn small">🤝 KABIDHI SITE</summary>
+                    <form method="post" enctype="multipart/form-data" class="gps-form" style="margin-top:10px">
+                        <input type="hidden" name="st_action" value="st_handover_site"><input type="hidden" name="site_id" value="<?=$s['id']?>">
+                        <label class="camera-field">🤝 Picha ya makabidhiano<input class="phone-camera" type="file" name="handover_photo" accept="image/*" capture="environment" required></label>
+                        <div class="photo-upload-list"><label class="camera-field">🧾 Picha ya Jobcard ya makabidhiano<input class="phone-camera" type="file" name="handover_jobcard_photo" accept="image/*" capture="environment" required></label></div>
+                        <button type="button" class="btn small add-photo-btn" data-photo-name="handover_photos[]">➕ ONGEZA PICHA NYINGINE</button>
+                        <textarea name="handover_notes" placeholder="Maelezo ya makabidhiano" required></textarea>
+                        <input type="hidden" name="latitude" class="gps-lat"><input type="hidden" name="longitude" class="gps-lng"><input type="hidden" name="accuracy" class="gps-accuracy"><input type="hidden" name="captured_at" class="gps-time">
+                        <button type="button" class="btn gps-btn">📍 Pata Location</button> <span class="gps-status small">Location bado haijapatikana</span>
+                        <button class="btn" type="submit">TUMA MAKABIDHIANO</button>
+                    </form>
+                </details><?php endif;?><?php endif;?></td>
       </tr>
     <?php endforeach;?>
   </table></div>
+
+    <?php $leaderSites=array_filter($mySites,function($site)use($tid){return (int)($site['technician_id']??0)===$tid;}); ?>
+    <?php if($leaderSites): ?><div class="panel"><h3>👑 Maombi ya Kubadilisha Fundi</h3><p class="muted">Kama kazi haihitaji fundi fulani, Site Leader anaweza kutuma ombi kwa Manager. Manager ndiye anayekubali au kukataa.</p>
+        <?php foreach($leaderSites as $leaderSite): $siteTeamIds=st_site_team_ids($pdo,(int)$leaderSite['id']); ?>
+            <?php foreach($siteTeamIds as $teamId): if($teamId===$tid)continue; $teamMember=null;foreach($allTechs as $tech)if((int)$tech['id']===$teamId)$teamMember=$tech; if(!$teamMember)continue; ?>
+                <form method="post" class="grid2" style="margin:10px 0;padding:10px;border:1px solid #eee;border-radius:8px"><input type="hidden" name="st_action" value="st_request_team_change"><input type="hidden" name="st_csrf" value="<?=st_e(st_csrf_token())?>"><input type="hidden" name="site_id" value="<?=$leaderSite['id']?>"><input type="hidden" name="technician_id" value="<?=$teamId?>"><div><b><?=st_e($leaderSite['site_name'])?></b><br><?=st_e($teamMember['full_name'])?></div><div><input name="reason" placeholder="Sababu ya kuomba kuondolewa" required><button class="btn small" type="submit">TUMA OMBI</button></div></form>
+            <?php endforeach; ?>
+        <?php endforeach; ?>
+    </div><?php endif; ?>
 
     <div class="grid2">
         <div class="panel"><h3>🧰 Omba Tool</h3><form method="post"><input type="hidden" name="st_action" value="st_request_tool"><input type="hidden" name="st_csrf" value="<?=st_e(st_csrf_token())?>"><div class="field"><select name="site_id" required><option value="">Chagua Site</option><?php foreach($mySites as $site):?><option value="<?=$site['id']?>"><?=st_e($site['site_name'])?></option><?php endforeach;?></select></div><div class="field"><select name="item_id" required><option value="">Chagua Tool</option><?php foreach($tools as $tool):?><option value="<?=$tool['id']?>"><?=st_e($tool['tool_name'].' - '.$tool['tool_code'])?></option><?php endforeach;?></select></div><div class="field"><textarea name="reason" placeholder="Kwa nini unahitaji tool hii?"></textarea></div><button class="btn">SUBMIT TOOL REQUEST</button></form></div>
@@ -2219,12 +2466,27 @@ img.passport{width:55px;height:55px;object-fit:cover;border-radius:50%}
         <form method="post" enctype="multipart/form-data" class="gps-form">
             <input type="hidden" name="st_action" value="st_save_daily_update">
             <div class="grid2"><div class="field"><select name="site_id" required><option value="">-- Site --</option><?php foreach($mySites as $s):?><option value="<?=$s['id']?>"><?=st_e($s['site_name'])?></option><?php endforeach;?></select></div><div class="field"><input type="date" name="update_date" value="<?=date('Y-m-d')?>" max="<?=date('Y-m-d')?>" required></div><div class="field"><textarea name="work_done" placeholder="Umefanya nini leo?" required></textarea></div><div class="field"><textarea name="blockers" placeholder="Changamoto / kilichokuzuia"></textarea></div><div class="field"><textarea name="next_steps" placeholder="Hatua za kesho"></textarea></div><div class="field"><input type="file" name="photo" accept="image/*" capture="environment" required><small>Piga picha ya update kwa camera ya simu (lazima).</small></div></div>
-            <input type="hidden" name="latitude" class="gps-lat"><input type="hidden" name="longitude" class="gps-lng"><input type="hidden" name="accuracy" class="gps-accuracy"><button type="button" class="btn gps-btn">📍 GPS</button> <span class="gps-status small">GPS optional</span> <button class="btn" type="submit">SAVE DAILY UPDATE</button>
+            <input type="hidden" name="latitude" class="gps-lat"><input type="hidden" name="longitude" class="gps-lng"><input type="hidden" name="accuracy" class="gps-accuracy"><input type="hidden" name="captured_at" class="gps-time"><button type="button" class="btn gps-btn">📍 GPS</button> <span class="gps-status small">GPS inahitajika</span> <button class="btn" type="submit">SAVE DAILY UPDATE</button>
         </form>
     </div>
     <div class="panel"><h3>📚 My Daily Reports</h3><div class="table-wrap"><table><tr><th>Date</th><th>Site</th><th>Work Done</th><th>Blockers</th><th>Next Steps</th></tr><?php foreach($myDailyUpdates as $update):?><tr><td><?=st_e($update['update_date'])?></td><td><?=st_e($update['site_name'])?></td><td><?=nl2br(st_e($update['work_done']))?></td><td><?=nl2br(st_e($update['blockers']))?></td><td><?=nl2br(st_e($update['next_steps']))?></td></tr><?php endforeach;?></table></div><?php if(!$myDailyUpdates):?><p class="muted">Hakuna daily update bado.</p><?php endif;?></div>
 
+        <div class="panel"><h3>✅ Kazi Nilizopewa</h3><div class="table-wrap"><table><tr><th>Site</th><th>Kazi</th><th>Maelezo</th><th>Status</th></tr><?php foreach($myTasks as $task):?><tr><td><?=st_e($task['site_name'])?></td><td><?=st_e($task['task_title'])?></td><td><?=st_e($task['notes']??'')?></td><td><span class="status"><?=st_e($task['status'])?></span></td></tr><?php endforeach;?></table></div><?php if(!$myTasks):?><p class="muted">Hakuna kazi ulizopewa bado.</p><?php endif;?></div>
+
   <div class="grid2">
+        <div class="panel">
+            <h3>📦 Thibitisha Material Iliyopokelewa</h3>
+            <p class="muted">Piga picha ya material uliyopewa na Meneja ili kuthibitisha kuwa umeipokea.</p>
+            <?php $pendingMaterialReceipts=array_filter($myMaterials,function($movement){return ($movement['movement_type']??'')==='Issued' && (int)($movement['technician_confirmed']??0)===0 && ($movement['status']??'')==='Approved';}); ?>
+            <?php if($pendingMaterialReceipts): foreach($pendingMaterialReceipts as $movement): ?>
+                <form method="post" enctype="multipart/form-data" class="gps-form" style="margin-top:12px">
+                    <input type="hidden" name="st_action" value="st_confirm_material_received"><input type="hidden" name="st_csrf" value="<?=st_e(st_csrf_token())?>"><input type="hidden" name="movement_id" value="<?=$movement['id']?>">
+                    <b><?=st_e($movement['material_name']??'Material')?> - <?=st_e($movement['quantity'])?> <?=st_e($movement['unit']??'')?></b><div class="small"><?=st_e($movement['site_name']??'')?></div>
+                    <label class="camera-field">📷 Piga picha ya material uliyopokea<input class="phone-camera" type="file" name="received_photo" accept="image/*" capture="environment" required></label>
+                    <button class="btn" type="submit">THIBITISHA IMEPOKELEWA</button>
+                </form>
+            <?php endforeach; else: ?><p class="muted">Hakuna material inayosubiri kuthibitishwa.</p><?php endif; ?>
+        </div>
     <div class="panel">
       <h3>📦 <?=zan_t('Ripoti Material Iliyotumika','Report Material Used')?></h3>
       <div class="notice"><?=zan_t('Material inakabidhiwa na Meneja. Wewe una-report kiasi kilichotumika, picha na GPS ya site.','Material is issued by the Manager. You report what was used, with a site photo and GPS.')?></div>
@@ -2234,7 +2496,7 @@ img.passport{width:55px;height:55px;object-fit:cover;border-radius:50%}
         <div class="field"><select name="site_id" required><option value="">-- Site --</option><?php foreach($mySites as $s):?><option value="<?=$s['id']?>"><?=st_e($s['site_name'].' - '.$s['customer_name'])?></option><?php endforeach;?></select></div>
         <div class="field"><input type="number" step="0.01" min="0.01" name="quantity" placeholder="Quantity Used" required></div>
         <div class="field"><textarea name="reason" placeholder="What was done with this material?"></textarea></div>
-        <div class="field">📷 <?=zan_t('Picha ya matumizi','Usage photo')?><input type="file" name="photo" accept="image/*" capture="environment" required></div>
+        <label class="camera-field">📷 <?=zan_t('Picha ya matumizi','Usage photo')?><input class="phone-camera" type="file" name="photo" accept="image/*" capture="environment" required></label>
         <input type="hidden" name="latitude" class="gps-lat"><input type="hidden" name="longitude" class="gps-lng"><input type="hidden" name="accuracy" class="gps-accuracy"><input type="hidden" name="captured_at" class="gps-time">
         <button type="button" class="btn gps-btn">📍 <?=zan_t('Pata Location','Get Location')?></button> <span class="gps-status small"><?=zan_t('Location bado haijapatikana','Location not captured yet')?></span>
         <br><button class="btn" type="submit">SUBMIT USAGE</button>
@@ -2248,7 +2510,7 @@ img.passport{width:55px;height:55px;object-fit:cover;border-radius:50%}
         <div class="field"><select name="site_id" required><option value="">-- Site --</option><?php foreach($mySites as $s):?><option value="<?=$s['id']?>"><?=st_e($s['site_name'])?></option><?php endforeach;?></select></div>
         <div class="field"><select name="category"><option>Site Arrival</option><option>Before Work</option><option>Material Received</option><option selected>Work Progress</option><option>Material Used</option><option>Completed Work</option><option>Problem / Damage</option><option>Site Exit</option><option>Customer Handover</option></select></div>
         <div class="field"><input name="caption" placeholder="<?=zan_t('Maelezo ya picha','Photo description')?>"></div>
-        <div class="field">📷 <input type="file" name="photo" accept="image/*" capture="environment" required></div>
+        <label class="camera-field">📷 Piga picha ya site<input class="phone-camera" type="file" name="photo" accept="image/*" capture="environment" required></label>
         <input type="hidden" name="latitude" class="gps-lat"><input type="hidden" name="longitude" class="gps-lng"><input type="hidden" name="accuracy" class="gps-accuracy"><input type="hidden" name="captured_at" class="gps-time">
         <button type="button" class="btn gps-btn">📍 <?=zan_t('Pata Location','Get Location')?></button> <span class="gps-status small"><?=zan_t('Location bado haijapatikana','Location not captured yet')?></span>
         <br><button class="btn" type="submit">📤 <?=zan_t('TUMA PICHA','SUBMIT PHOTO')?></button>
@@ -2272,7 +2534,7 @@ img.passport{width:55px;height:55px;object-fit:cover;border-radius:50%}
             <?php foreach($myMaterialFunds as $fund):?><tr>
                 <td><?=st_e($fund['site_name']??'')?></td><td><b><?=st_e($fund['amount'].' '.$fund['currency'])?></b></td><td><?=st_e($fund['purpose']??'')?></td>
                 <td><span class="status"><?=st_e($fund['status'])?></span></td><td><?=!empty($fund['receipt_photo'])?st_photo($fund['receipt_photo']):'-'?></td>
-                <td><?php if(empty($fund['receipt_photo'])&&$fund['status']==='Granted'):?><form method="post" enctype="multipart/form-data" class="gps-form actions"><input type="hidden" name="st_action" value="st_submit_material_receipt"><input type="hidden" name="fund_id" value="<?=$fund['id']?>"><input type="file" name="receipt_photo" accept="image/*" capture="environment" required><input name="receipt_notes" placeholder="Maelezo ya risiti" required><input type="hidden" name="latitude" class="gps-lat"><input type="hidden" name="longitude" class="gps-lng"><input type="hidden" name="accuracy" class="gps-accuracy"><button type="button" class="btn gps-btn">📍 GPS</button><button class="btn small">TUMA RISITI</button></form><?php else:?>Imetumwa<?php endif;?></td>
+                <td><?php if(empty($fund['receipt_photo'])&&$fund['status']==='Granted'):?><form method="post" enctype="multipart/form-data" class="gps-form actions"><input type="hidden" name="st_action" value="st_submit_material_receipt"><input type="hidden" name="fund_id" value="<?=$fund['id']?>"><div class="photo-upload-list" data-photo-list="receipt_photos"><label class="camera-field">📷 Piga picha ya risiti<input class="phone-camera" type="file" name="receipt_photo" accept="image/*" capture="environment" required></label></div><button type="button" class="btn small add-photo-btn" data-photo-target="receipt_photos" data-photo-name="receipt_photos[]">➕ ONGEZA RISITI</button><input name="receipt_notes" placeholder="Maelezo ya risiti" required><input type="hidden" name="latitude" class="gps-lat"><input type="hidden" name="longitude" class="gps-lng"><input type="hidden" name="accuracy" class="gps-accuracy"><button type="button" class="btn gps-btn">📍 GPS</button><button class="btn small">TUMA RISITI</button></form><?php else:?>Imetumwa<?php endif;?></td>
             </tr><?php endforeach;?>
         </table></div><?php if(!$myMaterialFunds):?><p class="muted">Hujawekewa pesa ya material bado.</p><?php endif;?></div>
 
@@ -2314,11 +2576,13 @@ img.passport{width:55px;height:55px;object-fit:cover;border-radius:50%}
     $dashStatusMax=1;foreach($dashStatuses as $statusRow)$dashStatusMax=max($dashStatusMax,(int)$statusRow['total']);
     $dashAlerts=$pdo->query("SELECT site_name,status,due_date FROM st_sites WHERE (due_date IS NOT NULL AND due_date<>'' AND due_date < date('now') AND COALESCE(status,'')<>'Closed') OR status='Pending Admin Approval' ORDER BY due_date LIMIT 8")->fetchAll(PDO::FETCH_ASSOC);
     $dashActivity=$pdo->query('SELECT action,details,performed_by,created_at FROM st_audit_log ORDER BY id DESC LIMIT 6')->fetchAll(PDO::FETCH_ASSOC);
+    $adminNotifications=st_user_notifications($pdo,(int)($_SESSION['user']['id']??0),20);
     $monthBest=st_best_technicians($pdo,$allTechs,date('Y-m-01'),date('Y-m-t'));
     $yearBest=st_best_technicians($pdo,$allTechs,date('Y-01-01'),date('Y-12-31'));
     $bestMonth=$monthBest[0]??null;$bestYear=$yearBest[0]??null;
   ?>
   <h2>📊 Site Tracking Dashboard</h2>
+    <?php if($adminNotifications): ?><div class="panel"><h3>🔔 Notifications za Administrator</h3><?php foreach($adminNotifications as $notification):$wa=st_whatsapp_link($notification['phone']??'', $notification['message']);?><div class="alert-row"><span><?=st_e($notification['message'])?></span><span><small><?=st_e($notification['created_at'])?></small><?php if($wa):?> <a class="btn small wa-btn" target="_blank" href="<?=st_e($wa)?>">WhatsApp</a><?php endif;?></span></div><?php endforeach;?></div><?php endif; ?>
   <div class="cards">
         <a class="card dash-kpi" href="?page=st_sites"><div class="label">Active Sites</div><div class="value"><?=$dashActive?></div><span>🏗️ View sites</span></a>
         <a class="card dash-kpi" href="?page=st_reports"><div class="label">Overdue Sites</div><div class="value"><?=$dashOverdue?></div><span>⚠️ Review report</span></a>
@@ -2393,13 +2657,25 @@ img.passport{width:55px;height:55px;object-fit:cover;border-radius:50%}
     </div><button class="btn">SAVE TECHNICIAN</button>
   </form></div><?php endif;?>
 
-    <div class="panel table-wrap"><table><tr><th>Photo</th><th>Technician</th><th>Office</th><th>Jinsia</th><th>Ndoa</th><th>Watoto</th><th>Username</th><th>Phone</th><th>Status</th><th>Action</th></tr>
-  <?php foreach($allTechs as $x):?><tr>
-        <td><?=st_photo($x['photo']??'','passport')?></td><td><b><?=st_e($x['full_name'])?></b><div class="small"><?=st_e($x['technician_no'])?> · <?=st_e($x['specialization'])?></div></td>
+        <div class="panel table-wrap"><table><tr><th>Photo</th><th>Technician</th><th>Office</th><th>Jinsia</th><th>Ndoa</th><th>Watoto</th><th>Username</th><th>Phone</th><th>Status</th><th>Summary</th><th>Quick Actions</th></tr>
+    <?php foreach($allTechs as $x):
+        $techSiteCountStmt=$pdo->prepare('SELECT COUNT(*) FROM st_site_technicians WHERE technician_id=?');$techSiteCountStmt->execute([(int)$x['id']]);$techSiteCount=(int)$techSiteCountStmt->fetchColumn();
+        $techToolCountStmt=$pdo->prepare("SELECT COUNT(*) FROM st_tool_movements WHERE technician_id=? AND action_type='Issued' AND COALESCE(status,'') NOT IN ('Returned','Rejected')");$techToolCountStmt->execute([(int)$x['id']]);$techToolCount=(int)$techToolCountStmt->fetchColumn();
+        $techFundStmt=$pdo->prepare('SELECT COALESCE(SUM(amount),0),COUNT(*) FROM st_material_funds WHERE technician_id=?');$techFundStmt->execute([(int)$x['id']]);$techFund=$techFundStmt->fetch(PDO::FETCH_NUM);
+        $techReceiptStmt=$pdo->prepare("SELECT COUNT(*) FROM st_material_funds WHERE technician_id=? AND status='Receipt Submitted'");$techReceiptStmt->execute([(int)$x['id']]);$techReceiptCount=(int)$techReceiptStmt->fetchColumn();
+        $techWhatsApp=st_whatsapp_link($x['phone']??'','Habari '.($x['full_name']??'').', tafadhali tuma update ya kazi na risiti kama bado hujatuma.');
+    ?><tr>
+                <td><?=st_photo($x['photo']??'','passport')?></td><td><b><?=st_e($x['full_name'])?></b><div class="small"><?=st_e($x['technician_no'])?> · <?=st_e($x['specialization'])?></div></td>
         <td><?=st_e($x['office']??'')?></td><td><?=st_e($x['gender']??'')?></td><td><?=st_e($x['marital_status']??'')?></td><td><?=st_e($x['children_count']??0)?></td>
-    <td><?=st_e($x['username']??'')?></td><td><?=st_e($x['phone'])?></td><td><?=st_e($x['status'])?></td>
-    <td><div class="actions"><a class="btn small" href="?page=st_technicians&edit=<?=$x['id']?>">✏️ EDIT</a>
-      <form method="post" onsubmit="return confirm('Delete this technician?')"><input type="hidden" name="st_action" value="st_delete_technician"><input type="hidden" name="id" value="<?=$x['id']?>"><button class="btn danger small">🗑️ DELETE</button></form>
+        <td><?=st_e($x['username']??'')?></td><td><?=st_e($x['phone'])?></td><td><?=st_e($x['status'])?></td>
+        <td><div class="small">Sites: <b><?=$techSiteCount?></b> · Tools: <b><?=$techToolCount?></b><br>Pesa: <b><?=st_e(number_format((float)$techFund[0],2))?></b><br>Risiti: <b><?=$techReceiptCount?></b></div></td>
+                <td><div class="actions"><a class="btn small quick-icon" href="?page=st_technicians&edit=<?=$x['id']?>" title="Edit technician" aria-label="Edit technician">✏️</a>
+                        <?php if(st_admin_can($pdo,'sites')):?><a class="btn small quick-icon" href="?page=st_sites&assign_to=<?=$x['id']?>#site-form" title="Mpe site" aria-label="Mpe site">🏗️</a><?php endif;?>
+                        <?php if(st_admin_can($pdo,'movements')):?><a class="btn small quick-icon" href="?page=st_movements&technician_id=<?=$x['id']?>#issue-tool" title="Mpe tool" aria-label="Mpe tool">🔧</a><?php endif;?>
+                        <?php if(st_admin_can($pdo,'money_transfer')):?><a class="btn small quick-icon" href="?page=st_money_transfer&technician_id=<?=$x['id']?>#money-form" title="Mpe pesa" aria-label="Mpe pesa">💸</a><?php endif;?>
+                        <?php if(st_admin_can($pdo,'reports')):?><a class="btn small quick-icon" href="?page=st_reports" title="Reports" aria-label="Reports">📊</a><?php endif;?>
+                        <?php if($techWhatsApp):?><a class="btn small wa-btn quick-icon" target="_blank" href="<?=st_e($techWhatsApp)?>" title="WhatsApp" aria-label="WhatsApp">💬</a><?php endif;?>
+            <form method="post" onsubmit="return confirm('Delete this technician?')"><input type="hidden" name="st_action" value="st_delete_technician"><input type="hidden" name="id" value="<?=$x['id']?>"><button class="btn danger small quick-icon" title="Delete technician" aria-label="Delete technician">🗑️</button></form>
     </div></td>
   </tr><?php endforeach;?></table></div>
 
@@ -2420,10 +2696,10 @@ img.passport{width:55px;height:55px;object-fit:cover;border-radius:50%}
     </div><button class="btn">UPDATE SITE</button> <a class="btn dark" href="?page=st_sites">CANCEL</a>
   </form></div>
   <?php else:?>
-  <div class="panel"><form method="post"><input type="hidden" name="st_action" value="st_save_site"><div class="grid2">
+    <div class="panel" id="site-form"><form method="post"><input type="hidden" name="st_action" value="st_save_site"><div class="grid2">
     <div class="field"><input name="site_name" placeholder="Site / Project Name" required></div><div class="field"><input name="customer_name" placeholder="Customer Name" required></div>
     <div class="field"><input name="location" placeholder="Location"></div>
-    <div class="field"><select name="technician_id"><option value="">Primary Technician</option><?php foreach($allTechs as $t):?><option value="<?=$t['id']?>"><?=st_e($t['full_name'])?></option><?php endforeach;?></select></div>
+    <div class="field"><select name="technician_id"><option value="">Primary Technician</option><?php foreach($allTechs as $t):?><option value="<?=$t['id']?>" <?=((int)($_GET['assign_to']??0)===(int)$t['id']?'selected':'')?>><?=st_e($t['full_name'])?></option><?php endforeach;?></select></div>
     <div class="field"><label>Other technicians on this site</label><select name="team_technicians[]" multiple><?php foreach($allTechs as $t):?><option value="<?=$t['id']?>"><?=st_e($t['full_name'])?></option><?php endforeach;?></select></div>
     <div class="field"><input type="date" name="start_date"></div><div class="field"><input type="date" name="due_date"></div>
     <div class="field"><select name="status"><option>Pending</option><option>Assigned</option><option>In Progress</option><option>Completed</option><option>Verified</option><option>Closed</option></select></div>
@@ -2431,19 +2707,23 @@ img.passport{width:55px;height:55px;object-fit:cover;border-radius:50%}
   </div><button class="btn">SAVE SITE</button></form></div><?php endif;?>
 
     <div class="panel table-wrap"><table><tr><th>Site</th><th>Customer</th><th>Primary</th><th>Other Technicians</th><th>Status</th><th>Action</th></tr>
-  <?php foreach($sites as $x):
+    <?php foreach($sites as $x):
     $team=st_site_team_ids($pdo,(int)$x['id']);
     $names=[];foreach($allTechs as $t)if(in_array((int)$t['id'],$team,true))$names[]=$t['full_name'];
-  ?><tr><td><?=st_e($x['site_name'])?><div class="small"><?=st_e($x['location'])?></div></td><td><?=st_e($x['customer_name'])?></td>
+        $jobcardEvidence=$pdo->prepare("SELECT photo FROM st_evidence_photos WHERE entity_type='site' AND entity_id=? AND category='Jobcard' ORDER BY id");$jobcardEvidence->execute([(int)$x['id']]);$jobcardEvidence=$jobcardEvidence->fetchAll(PDO::FETCH_COLUMN);
+    ?><tr><td><?=st_e($x['site_name'])?><div class="small"><?=st_e($x['location'])?></div><?php if(!empty($x['completion_photo'])):?><div class="small"><a target="_blank" href="<?=st_e($x['completion_photo'])?>">📷 Completion photo</a> · <a target="_blank" href="<?=st_e($x['jobcard_photo']??'')?>">🧾 Jobcard</a><?php if($x['completion_latitude']!==null&&$x['completion_longitude']!==null):?> · <a target="_blank" href="<?=st_e(st_google_map_url($x['completion_latitude'],$x['completion_longitude']))?>">📍 Google Map</a><?php endif;?></div><?php endif;?><?php if($jobcardEvidence):?><div class="small">🧾 Picha za ziada za jobcard: <?php foreach($jobcardEvidence as $evidencePhoto):?><?=st_photo($evidencePhoto)?><?php endforeach;?></div><?php endif;?></td><td><?=st_e($x['customer_name'])?></td>
     <td><?php foreach($allTechs as $t)if((int)$t['id']===(int)$x['technician_id'])echo st_e($t['full_name']);?></td>
     <td><?=st_e(implode(', ',$names))?></td><td><span class="status"><?=st_e($x['status'])?></span></td>
-    <td><div class="actions"><a class="btn small" href="?page=st_sites&edit=<?=$x['id']?>">✏️ EDIT</a>
+        <td><div class="actions"><a class="btn small" href="?page=st_sites&edit=<?=$x['id']?>" title="Edit site" aria-label="Edit site">✏️</a>
+            <?php if(st_is_manager()||st_is_admin()):?><details class="team-editor"><summary class="btn small" title="Add or remove technicians" aria-label="Add or remove technicians">👥</summary><form method="post" class="team-editor-form"><input type="hidden" name="st_action" value="st_update_site_team"><input type="hidden" name="site_id" value="<?=$x['id']?>"><input type="hidden" name="primary_id" value="<?=$x['technician_id']?>"><strong>Team ya site</strong><?php foreach($allTechs as $teamTech):if((int)$teamTech['id']===(int)$x['technician_id'])continue;?><label><input type="checkbox" name="team_technicians[]" value="<?=$teamTech['id']?>" <?=in_array((int)$teamTech['id'],$team,true)?'checked':''?>> <?=st_e($teamTech['full_name'])?></label><?php endforeach;?><button class="btn small" type="submit">HIFADHI TEAM</button></form></details><?php endif;?>
             <?php if(st_is_manager()||st_is_admin()):?><form method="post" class="actions"><input type="hidden" name="st_action" value="st_assign_site"><input type="hidden" name="site_id" value="<?=$x['id']?>"><select name="technician_id" required><option value="">Assign / Reassign fundi</option><?php foreach($allTechs as $t):?><option value="<?=$t['id']?>" <?=((int)$x['technician_id']===(int)$t['id']?'selected':'')?>><?=st_e($t['full_name'])?></option><?php endforeach;?></select><button class="btn small">ASSIGN</button></form><?php endif;?>
       <?php if($x['status']==='Pending Admin Approval'):?><form method="post"><input type="hidden" name="st_action" value="st_approve_site_completion"><input type="hidden" name="site_id" value="<?=$x['id']?>"><button class="btn small">APPROVE & CLOSE</button></form>
       <form method="post"><input type="hidden" name="st_action" value="st_reject_site_completion"><input type="hidden" name="site_id" value="<?=$x['id']?>"><input name="reason" placeholder="Reason" required><button class="btn danger small">REJECT</button></form><?php endif;?>
       <form method="post" onsubmit="return confirm('Delete this site?')"><input type="hidden" name="st_action" value="st_delete_site"><input type="hidden" name="id" value="<?=$x['id']?>"><button class="btn danger small">🗑️ DELETE</button></form>
         </div></td></tr><?php endforeach;?></table></div>
 
+    <?php $teamRequests=$pdo->query("SELECT r.*,s.site_name,requester.full_name AS requester_name,member.full_name AS technician_name FROM st_team_change_requests r JOIN st_sites s ON s.id=r.site_id JOIN st_technicians requester ON requester.id=r.requester_id JOIN st_technicians member ON member.id=r.technician_id WHERE r.status='Pending' ORDER BY r.id DESC")->fetchAll(PDO::FETCH_ASSOC); ?>
+    <?php if((st_is_manager()||st_is_admin())&&$teamRequests): ?><div class="panel"><h3>📋 Maombi ya Kubadilisha Team</h3><div class="table-wrap"><table><tr><th>Site</th><th>Site Leader</th><th>Fundi</th><th>Sababu</th><th>Action</th></tr><?php foreach($teamRequests as $request):?><tr><td><?=st_e($request['site_name'])?></td><td><?=st_e($request['requester_name'])?></td><td><?=st_e($request['technician_name'])?></td><td><?=st_e($request['reason'])?></td><td><form method="post" style="display:inline"><input type="hidden" name="st_action" value="st_review_team_change"><input type="hidden" name="st_csrf" value="<?=st_e(st_csrf_token())?>"><input type="hidden" name="request_id" value="<?=$request['id']?>"><input type="hidden" name="decision" value="approve"><button class="btn small">APPROVE</button></form> <form method="post" style="display:inline"><input type="hidden" name="st_action" value="st_review_team_change"><input type="hidden" name="st_csrf" value="<?=st_e(st_csrf_token())?>"><input type="hidden" name="request_id" value="<?=$request['id']?>"><input type="hidden" name="decision" value="reject"><button class="btn danger small">REJECT</button></form></td></tr><?php endforeach;?></table></div></div><?php endif; ?>
     <?php $siteTasks=$pdo->query("SELECT t.*,s.site_name,tech.full_name AS assigned_name FROM st_site_tasks t JOIN st_sites s ON s.id=t.site_id LEFT JOIN st_technicians tech ON tech.id=t.assigned_to ORDER BY t.id DESC")->fetchAll(PDO::FETCH_ASSOC); ?>
     <div class="panel"><h3>✅ Tasks / Checklist</h3>
         <?php if(st_is_admin()):?><form method="post" class="grid2"><input type="hidden" name="st_action" value="st_save_site_task"><div class="field"><select name="site_id" required><option value="">Chagua Site</option><?php foreach($sites as $site):?><option value="<?=$site['id']?>"><?=st_e($site['site_name'])?></option><?php endforeach;?></select></div><div class="field"><input name="task_title" placeholder="Task / Checklist item" required></div><div class="field"><select name="assigned_to"><option value="">Assign technician (optional)</option><?php foreach($allTechs as $technician):?><option value="<?=$technician['id']?>"><?=st_e($technician['full_name'])?></option><?php endforeach;?></select></div><div class="field"><input name="notes" placeholder="Notes"></div><div><button class="btn">ADD TASK</button></div></form><?php endif;?>
@@ -2515,9 +2795,55 @@ img.passport{width:55px;height:55px;object-fit:cover;border-radius:50%}
   ?><tr>
     <td><?=st_e($r['material_name'])?></td><td><?=st_e($r['movement_type']??'Issued')?></td><td><?=st_e($r['quantity'])?> <?=st_e($r['unit'])?></td><td><?=st_e($r['technician_name'])?></td>
     <td><?=st_e($r['site_name']??'')?></td><td><?=st_e($r['customer_name']??'')?></td><td><?=st_e(implode(', ',$team))?></td>
-    <td><?=st_photo($r['photo']??'')?></td><td><?php if($r['latitude']!==null && $r['longitude']!==null):?><a class="btn small" target="_blank" href="https://www.openstreetmap.org/?mlat=<?=rawurlencode($r['latitude'])?>&mlon=<?=rawurlencode($r['longitude'])?>#map=18/<?=rawurlencode($r['latitude'])?>/<?=rawurlencode($r['longitude'])?>">🗺️ MAP</a><div class="small"><?=st_e($r['latitude'])?>, <?=st_e($r['longitude'])?></div><?php else:?>-<?php endif;?></td><td><?=st_e($r['created_at'])?></td><td><span class="status"><?=st_e($r['status'])?></span></td>
+    <td><?=st_photo($r['photo']??'')?><?php if(!empty($r['received_photo'])):?><div class="small">📦 <?=st_photo($r['received_photo'])?></div><?php endif;?></td><td><?php if($r['latitude']!==null && $r['longitude']!==null):?><a class="btn small" target="_blank" href="<?=st_e(st_google_map_url($r['latitude'],$r['longitude']))?>">🗺️ Google Map</a><div class="small"><?=st_e($r['latitude'])?>, <?=st_e($r['longitude'])?></div><?php else:?>-<?php endif;?></td><td><?=st_e($r['created_at'])?></td><td><span class="status"><?=st_e($r['status'])?></span></td>
   </tr><?php endforeach;?>
   </table></div></div>
+
+<?php elseif($page==='st_money_transfer'): ?>
+    <?php
+        $moneyTransfers=$pdo->query("SELECT f.*,t.full_name AS technician_name,t.phone,s.site_name,s.customer_name
+                                                                 FROM st_material_funds f
+                                                                 JOIN st_technicians t ON t.id=f.technician_id
+                                                                 JOIN st_sites s ON s.id=f.site_id
+                                                                 ORDER BY f.id DESC LIMIT 300")->fetchAll(PDO::FETCH_ASSOC);
+        $moneyTotal=(float)$pdo->query('SELECT COALESCE(SUM(amount),0) FROM st_material_funds')->fetchColumn();
+        $moneyPending=(int)$pdo->query("SELECT COUNT(*) FROM st_material_funds WHERE status='Granted'")->fetchColumn();
+        $moneyReceipts=(int)$pdo->query("SELECT COUNT(*) FROM st_material_funds WHERE status='Receipt Submitted'")->fetchColumn();
+    ?>
+    <h2>💸 Money Transfer</h2>
+    <div class="notice"><b>Ushauri wa usimamizi wa pesa:</b> Tuma pesa baada ya kuainisha site na sababu, hifadhi uthibitisho wa transfer, na usifunge matumizi mpaka fundi atume risiti. Rekodi zote hapa zinaonekana kwenye audit history.</div>
+    <div class="cards">
+        <div class="card"><span class="small">Jumla ya pesa zilizotolewa</span><b><?=st_e(number_format($moneyTotal,2).' TZS')?></b></div>
+        <div class="card"><span class="small">Transfers zinazosubiri risiti</span><b><?=st_e($moneyPending)?></b></div>
+        <div class="card"><span class="small">Risiti zilizowasilishwa</span><b><?=st_e($moneyReceipts)?></b></div>
+    </div>
+    <div class="panel" id="money-form" style="margin-top:18px"><h3>➕ Tuma Pesa kwa Fundi</h3>
+        <form method="post" class="grid2"><input type="hidden" name="st_action" value="st_grant_material_fund">
+            <div class="field"><label>Fundi<select name="technician_id" required><option value="">-- Chagua Fundi --</option><?php foreach($allTechs as $t):?><option value="<?=$t['id']?>" <?=((int)($_GET['technician_id']??0)===(int)$t['id']?'selected':'')?>><?=st_e($t['full_name'].' - '.$t['phone'])?></option><?php endforeach;?></select></label></div>
+            <div class="field"><label>Site<select name="site_id" required><option value="">-- Chagua Site --</option><?php $moneyTechnicianId=(int)($_GET['technician_id']??0);$moneySites=$sites;if($moneyTechnicianId){$moneySiteQuery=$pdo->prepare("SELECT s.* FROM st_sites s JOIN st_site_technicians st ON st.site_id=s.id WHERE st.technician_id=? ORDER BY s.site_name");$moneySiteQuery->execute([$moneyTechnicianId]);$moneySites=$moneySiteQuery->fetchAll(PDO::FETCH_ASSOC);}foreach($moneySites as $site):?><option value="<?=$site['id']?>"><?=st_e($site['site_name'].' - '.$site['customer_name'])?></option><?php endforeach;?></select></label></div>
+            <div class="field"><label>Kiasi<input type="number" name="amount" step="0.01" min="0.01" placeholder="Kiasi cha pesa" required></label></div>
+            <div class="field"><label>Currency<input name="currency" value="TZS" required></label></div>
+            <div class="field"><label>Sababu / matumizi yaliyopangwa<textarea name="purpose" placeholder="Mfano: Kununua cable na connectors kwa Site A" required></textarea></label></div>
+            <div><button class="btn" type="submit">💸 TUMA PESA</button></div>
+        </form>
+    </div>
+    <div class="panel"><h3>📋 Historia ya Money Transfer na Risiti</h3><div class="table-wrap"><table>
+        <tr><th>Tarehe</th><th>Fundi</th><th>Site</th><th>Kiasi</th><th>Sababu</th><th>Aliyetuma</th><th>Status</th><th>Risiti</th><th>GPS</th></tr>
+        <?php foreach($moneyTransfers as $transfer):
+            $receiptEvidence=$pdo->prepare("SELECT photo FROM st_evidence_photos WHERE entity_type='material_fund' AND entity_id=? AND category='Material Receipt' ORDER BY id");
+            $receiptEvidence->execute([(int)$transfer['id']]);$receiptEvidence=$receiptEvidence->fetchAll(PDO::FETCH_COLUMN);
+        ?><tr>
+            <td><?=st_e($transfer['granted_at']??$transfer['created_at'])?></td>
+            <td><b><?=st_e($transfer['technician_name'])?></b><div class="small"><?=st_e($transfer['phone']??'')?></div></td>
+            <td><?=st_e($transfer['site_name'])?><div class="small"><?=st_e($transfer['customer_name']??'')?></div></td>
+            <td><b><?=st_e($transfer['amount'].' '.$transfer['currency'])?></b></td>
+            <td><?=nl2br(st_e($transfer['purpose']??''))?></td>
+            <td><?=st_e($transfer['granted_by']??'')?></td>
+            <td><span class="status"><?=st_e($transfer['status'])?></span><?php if(!empty($transfer['receipt_submitted_at'])):?><div class="small">Risiti: <?=st_e($transfer['receipt_submitted_at'])?></div><?php endif;?></td>
+            <td><?php if(!empty($transfer['receipt_photo'])):?><?=st_photo($transfer['receipt_photo'])?><?php else:?>Haijatumwa<?php endif;?><?php foreach($receiptEvidence as $receiptPhoto):?><?=st_photo($receiptPhoto)?><?php endforeach;?><?php if(!empty($transfer['receipt_notes'])):?><div class="small"><?=st_e($transfer['receipt_notes'])?></div><?php endif;?></td>
+            <td><?php if($transfer['receipt_latitude']!==null&&$transfer['receipt_longitude']!==null):?><a class="btn small" target="_blank" href="<?=st_e(st_google_map_url($transfer['receipt_latitude'],$transfer['receipt_longitude']))?>">🗺️ Map</a><?php else:?>-<?php endif;?></td>
+        </tr><?php endforeach;?>
+    </table></div><?php if(!$moneyTransfers):?><p class="muted">Hakuna money transfer bado.</p><?php endif;?></div>
 
 <?php elseif($page==='st_movements'): ?>
   <?php if(st_is_technician()):?>
@@ -2535,9 +2861,9 @@ img.passport{width:55px;height:55px;object-fit:cover;border-radius:50%}
   <?php else:?>
     <h2>🔄 Tool & Material Movements</h2>
     <div class="grid2">
-      <div class="panel"><h3>🔧 Issue / Return Tool</h3><form method="post" enctype="multipart/form-data" class="gps-form"><input type="hidden" name="st_action" value="st_issue_tool">
+    <div class="panel" id="issue-tool"><h3>🔧 Issue / Return Tool</h3><form method="post" enctype="multipart/form-data" class="gps-form"><input type="hidden" name="st_action" value="st_issue_tool">
         <div class="field"><select name="tool_id" required><?php foreach($tools as $x):?><option value="<?=$x['id']?>"><?=st_e($x['tool_name'].' - '.$x['tool_code'])?></option><?php endforeach;?></select></div>
-        <div class="field"><select name="technician_id" required><?php foreach($allTechs as $x):?><option value="<?=$x['id']?>"><?=st_e($x['full_name'])?></option><?php endforeach;?></select></div>
+        <div class="field"><select name="technician_id" required><?php foreach($allTechs as $x):?><option value="<?=$x['id']?>" <?=((int)($_GET['technician_id']??0)===(int)$x['id']?'selected':'')?>><?=st_e($x['full_name'])?></option><?php endforeach;?></select></div>
         <div class="field"><select name="site_id"><option value="">Select Site</option><?php foreach($sites as $x):?><option value="<?=$x['id']?>"><?=st_e($x['site_name'])?></option><?php endforeach;?></select></div>
         <div class="field"><input name="customer_name" placeholder="Customer Name"></div><div class="field"><input type="date" name="due_date"></div>
         <div class="field"><select name="condition_status"><option>Good</option><option>Damaged</option></select></div>
@@ -2554,7 +2880,7 @@ img.passport{width:55px;height:55px;object-fit:cover;border-radius:50%}
         <form method="post" enctype="multipart/form-data" class="gps-form">
           <input type="hidden" name="st_action" value="st_issue_material">
           <div class="field"><select name="material_id" required><option value="">-- Material --</option><?php foreach($materials as $m):?><option value="<?=$m['id']?>"><?=st_e($m['material_name'].' ('.$m['stock'].' '.$m['unit'].')')?></option><?php endforeach;?></select></div>
-          <div class="field"><select name="technician_id" required><option value="">-- Fundi --</option><?php foreach($allTechs as $t):?><option value="<?=$t['id']?>"><?=st_e($t['full_name'])?></option><?php endforeach;?></select></div>
+          <div class="field"><select name="technician_id" required><option value="">-- Fundi --</option><?php foreach($allTechs as $t):?><option value="<?=$t['id']?>" <?=((int)($_GET['technician_id']??0)===(int)$t['id']?'selected':'')?>><?=st_e($t['full_name'])?></option><?php endforeach;?></select></div>
           <div class="field"><select name="site_id" required><option value="">-- Site --</option><?php foreach($sites as $x):?><option value="<?=$x['id']?>"><?=st_e($x['site_name'].' - '.$x['customer_name'])?></option><?php endforeach;?></select></div>
           <div class="field"><input type="number" step="0.01" min="0.01" name="quantity" placeholder="<?=zan_t('Kiasi cha kutolewa','Quantity issued')?>" required></div>
           <div class="field"><textarea name="reason" placeholder="<?=zan_t('Maelezo ya makabidhiano','Issue notes')?>"></textarea></div>
@@ -2567,7 +2893,7 @@ img.passport{width:55px;height:55px;object-fit:cover;border-radius:50%}
     </div>
         <div class="panel"><h3>💰 <?=zan_t('Meneja Anampa Fundi Pesa ya Material','Manager Grants Material Purchase Funds')?></h3>
             <form method="post" class="grid2"><input type="hidden" name="st_action" value="st_grant_material_fund">
-                <div class="field"><select name="technician_id" required><option value="">-- Fundi --</option><?php foreach($allTechs as $t):?><option value="<?=$t['id']?>"><?=st_e($t['full_name'])?></option><?php endforeach;?></select></div>
+                <div class="field"><select name="technician_id" required><option value="">-- Fundi --</option><?php foreach($allTechs as $t):?><option value="<?=$t['id']?>" <?=((int)($_GET['technician_id']??0)===(int)$t['id']?'selected':'')?>><?=st_e($t['full_name'])?></option><?php endforeach;?></select></div>
                 <div class="field"><select name="site_id" required><option value="">-- Site --</option><?php foreach($sites as $x):?><option value="<?=$x['id']?>"><?=st_e($x['site_name'].' - '.$x['customer_name'])?></option><?php endforeach;?></select></div>
                 <div class="field"><input type="number" step="0.01" min="0.01" name="amount" placeholder="Kiasi cha pesa" required></div>
                 <div class="field"><input name="currency" value="TZS" placeholder="Currency" required></div>
@@ -2578,14 +2904,14 @@ img.passport{width:55px;height:55px;object-fit:cover;border-radius:50%}
         <?php $materialFunds=$pdo->query("SELECT f.*,t.full_name AS technician_name,s.site_name,s.customer_name FROM st_material_funds f JOIN st_technicians t ON t.id=f.technician_id JOIN st_sites s ON s.id=f.site_id ORDER BY f.id DESC LIMIT 200")->fetchAll(PDO::FETCH_ASSOC); ?>
         <div class="panel"><h3>📋 <?=zan_t('History ya Pesa na Risiti za Mafundi','Technician Material Funds and Receipts History')?></h3><div class="table-wrap"><table>
             <tr><th>Tarehe</th><th>Fundi</th><th>Site</th><th>Kiasi</th><th>Sababu</th><th>Status</th><th>Risiti</th><th>GPS</th></tr>
-            <?php foreach($materialFunds as $fund):?><tr><td><?=st_e($fund['granted_at']??$fund['created_at'])?></td><td><?=st_e($fund['technician_name'])?></td><td><?=st_e($fund['site_name'])?></td><td><b><?=st_e($fund['amount'].' '.$fund['currency'])?></b></td><td><?=st_e($fund['purpose']??'')?></td><td><span class="status"><?=st_e($fund['status'])?></span></td><td><?=!empty($fund['receipt_photo'])?st_photo($fund['receipt_photo']):'Haijatumwa'?></td><td><?php if($fund['receipt_latitude']!==null&&$fund['receipt_longitude']!==null):?><a class="btn small" target="_blank" href="https://www.openstreetmap.org/?mlat=<?=rawurlencode($fund['receipt_latitude'])?>&mlon=<?=rawurlencode($fund['receipt_longitude'])?>#map=18/<?=rawurlencode($fund['receipt_latitude'])?>/<?=rawurlencode($fund['receipt_longitude'])?>">MAP</a><?php else:?>-<?php endif;?></td></tr><?php endforeach;?>
+            <?php foreach($materialFunds as $fund): $receiptEvidence=$pdo->prepare("SELECT photo FROM st_evidence_photos WHERE entity_type='material_fund' AND entity_id=? AND category='Material Receipt' ORDER BY id");$receiptEvidence->execute([(int)$fund['id']]);$receiptEvidence=$receiptEvidence->fetchAll(PDO::FETCH_COLUMN);?><tr><td><?=st_e($fund['granted_at']??$fund['created_at'])?></td><td><?=st_e($fund['technician_name'])?></td><td><?=st_e($fund['site_name'])?></td><td><b><?=st_e($fund['amount'].' '.$fund['currency'])?></b></td><td><?=st_e($fund['purpose']??'')?></td><td><span class="status"><?=st_e($fund['status'])?></span></td><td><?=!empty($fund['receipt_photo'])?st_photo($fund['receipt_photo']):'Haijatumwa'?><?php foreach($receiptEvidence as $evidencePhoto):?><?=st_photo($evidencePhoto)?><?php endforeach;?></td><td><?php if($fund['receipt_latitude']!==null&&$fund['receipt_longitude']!==null):?><a class="btn small" target="_blank" href="<?=st_e(st_google_map_url($fund['receipt_latitude'],$fund['receipt_longitude']))?>">Google Map</a><?php else:?>-<?php endif;?></td></tr><?php endforeach;?>
         </table></div><?php if(!$materialFunds):?><p class="muted">Hakuna history ya pesa bado.</p><?php endif;?></div>
   <?php endif;?>
 
 <?php elseif($page==='st_site_gallery'): ?>
   <?php $gallerySql="SELECT p.*,s.site_name,s.customer_name,t.full_name AS technician_name FROM st_site_photos p LEFT JOIN st_sites s ON s.id=p.site_id LEFT JOIN st_technicians t ON t.id=p.technician_id";if(st_is_technician())$gallerySql.=" JOIN st_site_technicians ast ON ast.site_id=p.site_id AND ast.technician_id=".(int)$ct['id'];$gallerySql.=" ORDER BY p.id DESC";$gallery=$pdo->query($gallerySql)->fetchAll(PDO::FETCH_ASSOC); ?>
   <h2>📷 <?=zan_t('Picha za Sites','Site Photos')?></h2><div class="panel"><p class="muted"><?=zan_t('Kila picha inaonyesha site, fundi, tarehe, GPS na usahihi wa GPS.','Every photo shows the site, technician, date, GPS and GPS accuracy.')?></p><div class="photo-grid">
-  <?php foreach($gallery as $g):?><div class="photo-card"><?=st_photo($g['photo']??'','gallery-photo')?><h3><?=st_e($g['category'])?></h3><b><?=st_e($g['site_name']??'')?></b><div class="small">👷 <?=st_e($g['technician_name']??'')?></div><div class="small">🕒 <?=st_e($g['captured_at']??$g['created_at'])?></div><div class="small">📍 <?=st_e($g['latitude'])?>, <?=st_e($g['longitude'])?></div><div class="small">🎯 ±<?=st_e($g['accuracy']??'')?> m</div><?php if(!empty($g['caption'])):?><p><?=st_e($g['caption'])?></p><?php endif;?><?php if($g['latitude']!==null&&$g['longitude']!==null):?><a class="btn small" target="_blank" href="https://www.openstreetmap.org/?mlat=<?=rawurlencode($g['latitude'])?>&mlon=<?=rawurlencode($g['longitude'])?>#map=18/<?=rawurlencode($g['latitude'])?>/<?=rawurlencode($g['longitude'])?>">🗺️ <?=zan_t('Fungua Map','Open Map')?></a><?php endif;?></div><?php endforeach;?><?php if(!$gallery):?><p><?=zan_t('Hakuna picha za site bado.','No site photos yet.')?></p><?php endif;?></div></div>
+    <?php foreach($gallery as $g):?><div class="photo-card"><?=st_photo($g['photo']??'','gallery-photo')?><h3><?=st_e($g['category'])?></h3><b><?=st_e($g['site_name']??'')?></b><div class="small">👷 <?=st_e($g['technician_name']??'')?></div><div class="small">🕒 <?=st_e($g['captured_at']??$g['created_at'])?></div><div class="small">📍 <?=st_e($g['latitude'])?>, <?=st_e($g['longitude'])?></div><div class="small">🎯 ±<?=st_e($g['accuracy']??'')?> m</div><?php if(!empty($g['caption'])):?><p><?=st_e($g['caption'])?></p><?php endif;?><?php if($g['latitude']!==null&&$g['longitude']!==null):?><a class="btn small" target="_blank" href="<?=st_e(st_google_map_url($g['latitude'],$g['longitude']))?>">📍 Google Map</a><?php endif;?></div><?php endforeach;?><?php if(!$gallery):?><p><?=zan_t('Hakuna picha za site bado.','No site photos yet.')?></p><?php endif;?></div></div>
 
 <?php elseif($page==='st_approvals'): ?>
   <h2>✅ Approvals</h2>
@@ -2600,7 +2926,7 @@ img.passport{width:55px;height:55px;object-fit:cover;border-radius:50%}
 
   <div class="panel"><h3>📦 Material records</h3><div class="table-wrap"><table><tr><th>Material</th><th>Technician</th><th>Site</th><th>Qty</th><th>Photo</th><th>Status</th><th>Manager</th><th>Technical</th><th>Action</th></tr>
   <?php foreach($pdo->query("SELECT m.*,a.material_name,n.full_name,s.site_name FROM st_material_movements m JOIN st_materials a ON a.id=m.material_id JOIN st_technicians n ON n.id=m.technician_id LEFT JOIN st_sites s ON s.id=m.site_id ORDER BY m.id DESC")->fetchAll(PDO::FETCH_ASSOC) as $x):?><tr>
-    <td><?=st_e($x['material_name'])?></td><td><?=st_e($x['full_name'])?></td><td><?=st_e($x['site_name']??'')?></td><td><?=st_e($x['quantity'])?></td><td><?=st_photo($x['photo']??'')?></td><td><?=st_e($x['status'])?></td>
+    <td><?=st_e($x['material_name'])?></td><td><?=st_e($x['full_name'])?></td><td><?=st_e($x['site_name']??'')?></td><td><?=st_e($x['quantity'])?></td><td><?=st_photo($x['photo']??'')?><?php if(!empty($x['received_photo'])):?><div class="small">📦 <?=st_photo($x['received_photo'])?></div><?php endif;?></td><td><?=st_e($x['status'])?></td>
     <td><?=$x['manager_approved']?'✅':'⏳'?></td><td><?=$x['technical_approved']?'✅':'⏳'?></td>
         <td><?php foreach(['manager'=>'Manager','technical'=>'Technical Manager'] as $k=>$v):if(!$x[$k.'_approved']):?><form method="post" style="display:inline"><input type="hidden" name="st_action" value="st_approve_material"><input type="hidden" name="id" value="<?=$x['id']?>"><input type="hidden" name="stage" value="<?=$k?>"><button class="btn small"><?=$v?> Approve</button></form><?php endif;endforeach;?></td>
     </tr><?php endforeach;?></table></div></div>
@@ -2627,7 +2953,23 @@ img.passport{width:55px;height:55px;object-fit:cover;border-radius:50%}
 <?php elseif($page==='st_daily_reports'): ?>
     <?php $dailyRows=$pdo->query("SELECT u.*,s.site_name,t.full_name technician_name,t.phone FROM st_daily_updates u JOIN st_sites s ON s.id=u.site_id JOIN st_technicians t ON t.id=u.technician_id ORDER BY u.update_date DESC,u.id DESC LIMIT 300")->fetchAll(PDO::FETCH_ASSOC); ?>
     <h2>📚 Daily Technician Reports</h2>
-    <div class="panel"><div class="table-wrap"><table><tr><th>Date</th><th>Technician</th><th>Site</th><th>Work Done</th><th>Blockers</th><th>Next Steps</th><th>GPS</th></tr><?php foreach($dailyRows as $daily):?><tr><td><?=st_e($daily['update_date'])?></td><td><?=st_e($daily['technician_name'])?></td><td><?=st_e($daily['site_name'])?></td><td><?=nl2br(st_e($daily['work_done']))?></td><td><?=nl2br(st_e($daily['blockers']))?></td><td><?=nl2br(st_e($daily['next_steps']))?></td><td><?php if($daily['latitude']!==null&&$daily['longitude']!==null):?><a class="btn small" target="_blank" href="https://www.openstreetmap.org/?mlat=<?=rawurlencode($daily['latitude'])?>&mlon=<?=rawurlencode($daily['longitude'])?>#map=18/<?=rawurlencode($daily['latitude'])?>/<?=rawurlencode($daily['longitude'])?>">MAP</a><?php else:?>-<?php endif;?></td></tr><?php endforeach;?></table></div><?php if(!$dailyRows):?><p class="muted">Hakuna daily reports bado.</p><?php endif;?></div>
+    <div class="panel"><div class="table-wrap"><table><tr><th>Date</th><th>Technician</th><th>Site</th><th>Work Done</th><th>Blockers</th><th>Next Steps</th><th>GPS</th></tr><?php foreach($dailyRows as $daily):?><tr><td><?=st_e($daily['update_date'])?></td><td><?=st_e($daily['technician_name'])?></td><td><?=st_e($daily['site_name'])?></td><td><?=nl2br(st_e($daily['work_done']))?></td><td><?=nl2br(st_e($daily['blockers']))?></td><td><?=nl2br(st_e($daily['next_steps']))?></td><td><?php if($daily['latitude']!==null&&$daily['longitude']!==null):?><a class="btn small" target="_blank" href="<?=st_e(st_google_map_url($daily['latitude'],$daily['longitude']))?>">Google Map</a><?php else:?>-<?php endif;?></td></tr><?php endforeach;?></table></div><?php if(!$dailyRows):?><p class="muted">Hakuna daily reports bado.</p><?php endif;?></div>
+
+<?php elseif($page==='st_settings'): ?>
+    <h2>⚙️ <?=zan_t('Mipangilio ya Site Tracking','Site Tracking Settings')?></h2>
+    <div class="panel">
+        <h3>⏱️ <?=zan_t('Auto Logout','Auto Logout')?></h3>
+        <p class="muted"><?=zan_t('Mfumo utakuondoa baada ya kutotumia mfumo kwa muda uliochagua. Activity yoyote ndani ya mfumo huanza muda upya.','The system logs you out after the selected period of inactivity. Any activity resets the timer.')?></p>
+        <form method="post" class="grid2">
+            <input type="hidden" name="st_action" value="st_save_settings"><input type="hidden" name="st_csrf" value="<?=st_e(st_csrf_token())?>">
+            <label class="field"><?=zan_t('Muda wa kutotumia mfumo','Inactivity timeout')?><select name="timeout_minutes"><option value="15" <?=((int)$stTimeoutMinutes===15?'selected':'')?>>15 <?=zan_t('dakika','minutes')?></option><option value="30" <?=((int)$stTimeoutMinutes===30?'selected':'')?>>30 <?=zan_t('dakika','minutes')?></option><option value="60" <?=((int)$stTimeoutMinutes===60?'selected':'')?>>60 <?=zan_t('dakika','minutes')?></option><option value="120" <?=((int)$stTimeoutMinutes===120?'selected':'')?>>120 <?=zan_t('dakika','minutes')?></option></select></label>
+            <div><button class="btn" type="submit">💾 <?=zan_t('Hifadhi Mipangilio','Save Settings')?></button></div>
+        </form>
+    </div>
+    <div class="grid2">
+        <div class="panel"><h3>🔐 <?=zan_t('Usalama wa Session','Session Security')?></h3><p><?=zan_t('Logout hufanyika moja kwa moja baada ya muda wa kutotumia. Password hazionyeshwi; fundi au administrator hubadilisha password mpya kwa kutumia password ya sasa.','Logout happens automatically after inactivity. Passwords are never displayed; users change them using the current password.')?></p></div>
+        <div class="panel"><h3>📱 <?=zan_t('Matumizi ya Simu','Mobile Use')?></h3><p><?=zan_t('Ruhusu Camera na Location kwenye APK/browser. Tumia HTTPS au localhost ili camera na GPS vifanye kazi.','Allow Camera and Location in the APK/browser. Use HTTPS or localhost for camera and GPS access.')?></p></div>
+    </div>
 
 <?php elseif($page==='st_administration'): ?>
   <h2>🏢 Administration</h2>
@@ -2636,7 +2978,7 @@ img.passport{width:55px;height:55px;object-fit:cover;border-radius:50%}
         <div class="grid2"><div class="field"><input name="username" placeholder="Username" value="<?=st_e($editAdmin['username']??'')?>" required></div><div class="field"><input name="full_name" placeholder="Full name" value="<?=st_e($editAdmin['full_name']??'')?>" required></div>
         <div class="field"><input name="password" type="password" placeholder="<?=$editAdmin?'New password (optional)':'Password'?>" <?=$editAdmin?'':'required'?>></div><div class="field"><select name="admin_type"><option <?=($editAdmin['admin_type']??'')==='Manager'?'selected':''?>>Manager</option><option <?=($editAdmin['admin_type']??'')==='Technical Manager'?'selected':''?>>Technical Manager</option></select></div>
         <div class="field"><input name="office" placeholder="Office / Kituo cha kazi" value="<?=st_e($editAdmin['office']??'')?>" required></div><div class="field"><input name="passport_photo" type="file" accept="image/jpeg,image/png,image/webp" <?=$editAdmin?'':'required'?>></div><div class="field"><input name="phone" placeholder="Phone" value="<?=st_e($editAdmin['phone']??'')?>"></div><div class="field"><input name="email" placeholder="Email" value="<?=st_e($editAdmin['email']??'')?>"></div></div>
-        <div class="panel"><b>Ruhusa za kuona Site Tracking</b><div class="grid2"><?php foreach(['dashboard'=>'Dashboard','technicians'=>'Mafundi','sites'=>'Sites','tools'=>'Tools','materials'=>'Materials','photos'=>'Photos + GPS','movements'=>'Movements','approvals'=>'Approvals','reports'=>'Reports','daily_reports'=>'Daily Reports','activity'=>'Activity History','administration'=>'Administration'] as $permissionKey=>$permissionLabel):?><label><input type="checkbox" name="perm_<?=$permissionKey?>" value="1" <?=($editAdmin&&(!empty($editAdminPermissions[$permissionKey])||empty($editAdmin['permissions'])))?'checked':''?> style="width:auto"> <?=st_e($permissionLabel)?></label><?php endforeach;?></div></div>
+        <div class="panel"><b>Ruhusa za kuona Site Tracking</b><div class="grid2"><?php foreach(['dashboard'=>'Dashboard','technicians'=>'Mafundi','sites'=>'Sites','tools'=>'Tools','materials'=>'Materials','photos'=>'Photos + GPS','movements'=>'Movements','money_transfer'=>'Money Transfer','approvals'=>'Approvals','reports'=>'Reports','daily_reports'=>'Daily Reports','activity'=>'Activity History','administration'=>'Administration'] as $permissionKey=>$permissionLabel):?><label><input type="checkbox" name="perm_<?=$permissionKey?>" value="1" <?=($editAdmin&&(!empty($editAdminPermissions[$permissionKey])||empty($editAdmin['permissions'])))?'checked':''?> style="width:auto"> <?=st_e($permissionLabel)?></label><?php endforeach;?></div></div>
         <div class="field"><textarea name="whatsapp_template" rows="3" placeholder="Ujumbe wa WhatsApp wa reminder"><?=st_e($editAdmin['whatsapp_template']??'Habari {technician}, tafadhali tuma daily update ya site {site}.')?></textarea><small>Tumia: {technician}, {site}, {days} na {due_date}</small></div>
         <?php if(!empty($editAdmin['passport_photo'])):?><p><img src="<?=st_e($editAdmin['passport_photo'])?>" alt="Passport photo" style="width:80px;height:100px;object-fit:cover;border:1px solid #ddd;border-radius:6px"></p><?php endif;?>
     <button class="btn"><?=$editAdmin?'✏️ UPDATE ADMINISTRATOR':'SAVE ADMINISTRATOR'?></button> <?php if($editAdmin):?><a class="btn" href="?page=st_administration">CANCEL</a><?php endif;?></form>
@@ -2645,7 +2987,50 @@ img.passport{width:55px;height:55px;object-fit:cover;border-radius:50%}
 
 </main></div><script>
 document.addEventListener('DOMContentLoaded',function(){const token=<?=json_encode(st_csrf_token())?>;document.querySelectorAll('form').forEach(function(form){if(form.querySelector('input[name="st_action"]')&&!form.querySelector('input[name="st_csrf"])){const input=document.createElement('input');input.type='hidden';input.name='st_csrf';input.value=token;form.appendChild(input);}});});
-document.addEventListener('DOMContentLoaded',function(){document.querySelectorAll('input[type=file][capture]').forEach(function(i){i.setAttribute('accept','image/*');i.setAttribute('capture','environment');});function gps(form,status){if(!navigator.geolocation){status.textContent='GPS haipatikani kwenye kifaa hiki.';status.className='gps-status gps-error';return;}status.textContent='Inatafuta location...';navigator.geolocation.getCurrentPosition(function(p){var c=p.coords;form.querySelector('.gps-lat').value=c.latitude;form.querySelector('.gps-lng').value=c.longitude;form.querySelector('.gps-accuracy').value=c.accuracy||'';form.querySelector('.gps-time').value=new Date().toISOString();status.textContent='✓ GPS imepatikana ±'+Math.round(c.accuracy||0)+' m';status.className='gps-status gps-ready';},function(){status.textContent='GPS haikupatikana. Washa Location kwenye simu na ujaribu tena.';status.className='gps-status gps-error';},{enableHighAccuracy:true,timeout:15000,maximumAge:0});}document.querySelectorAll('.gps-form').forEach(function(form){var b=form.querySelector('.gps-btn'),st=form.querySelector('.gps-status');if(b)b.addEventListener('click',function(){gps(form,st);});form.addEventListener('submit',function(e){var lat=form.querySelector('.gps-lat');if(lat&&!lat.value){e.preventDefault();if(st){st.textContent='Bonyeza Pata Location kwanza.';st.className='gps-status gps-error';}}});});});
+document.addEventListener('DOMContentLoaded',function(){document.querySelectorAll('.add-photo-btn').forEach(function(button){button.addEventListener('click',function(){var form=button.closest('form'),list=form&&form.querySelector('.photo-upload-list');if(!list)return;var label=document.createElement('label');label.className='camera-field';label.textContent='📷 Picha nyingine';var input=document.createElement('input');input.type='file';input.name=button.dataset.photoName;input.accept='image/*';input.setAttribute('capture','environment');input.required=true;label.appendChild(input);list.appendChild(label);});});});
+document.addEventListener('DOMContentLoaded',function(){document.querySelectorAll('input[type=file][capture]').forEach(function(i){i.setAttribute('accept','image/*');i.setAttribute('capture','environment');});function gps(form,status){if(!navigator.geolocation){status.textContent='GPS haipatikani kwenye kifaa hiki.';status.className='gps-status gps-error';return;}status.textContent='Inatafuta location...';navigator.geolocation.getCurrentPosition(function(p){var c=p.coords;var lat=form.querySelector('.gps-lat'),lng=form.querySelector('.gps-lng'),accuracy=form.querySelector('.gps-accuracy'),captured=form.querySelector('.gps-time');if(lat)lat.value=c.latitude;if(lng)lng.value=c.longitude;if(accuracy)accuracy.value=c.accuracy||'';if(captured)captured.value=new Date().toISOString();status.textContent='✓ GPS imepatikana ±'+Math.round(c.accuracy||0)+' m';status.className='gps-status gps-ready';},function(){status.textContent='GPS haikupatikana. Washa Location kwenye simu na ujaribu tena.';status.className='gps-status gps-error';},{enableHighAccuracy:true,timeout:20000,maximumAge:0});}document.querySelectorAll('.gps-form').forEach(function(form){var b=form.querySelector('.gps-btn'),st=form.querySelector('.gps-status');if(b)b.addEventListener('click',function(){gps(form,st);});form.addEventListener('submit',function(e){var lat=form.querySelector('.gps-lat');if(lat&&!lat.value){e.preventDefault();if(st){st.textContent='Bonyeza Pata Location kwanza.';st.className='gps-status gps-error';}}});});});
+</script><script>
+(function(){
+    var activeInput=null;
+    var stream=null;
+    var modal=document.createElement('div');
+    modal.className='camera-modal';
+    modal.innerHTML='<div class="camera-box"><video autoplay playsinline></video><p class="camera-message small">Ruhusu camera ya simu.</p><div class="camera-actions"><button type="button" class="btn camera-take">PIGA PICHA</button><button type="button" class="btn dark camera-close">Funga</button></div></div>';
+    document.body.appendChild(modal);
+    var video=modal.querySelector('video');
+    var message=modal.querySelector('.camera-message');
+    function closeCamera(){if(stream){stream.getTracks().forEach(function(track){track.stop();});stream=null;}video.srcObject=null;modal.classList.remove('open');activeInput=null;}
+    function openCamera(input){
+        activeInput=input;
+        if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){message.textContent='Camera halisi haipatikani. Tumia HTTPS au localhost kwenye simu.';modal.classList.add('open');return;}
+        navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false}).then(function(mediaStream){stream=mediaStream;video.srcObject=stream;message.textContent='Elekeza camera kwenye picha, kisha bonyeza PIGA PICHA.';modal.classList.add('open');}).catch(function(){message.textContent='Ruhusa ya camera imekataliwa. Fungua Camera permission kwenye browser.';modal.classList.add('open');});
+    }
+    document.querySelectorAll('.st-main input[type=file][accept*="image"]').forEach(function(input){
+        input.classList.add('real-camera-input');
+        input.style.display='none';
+        var label=input.closest('.camera-field')||input.parentElement;
+        var button=document.createElement('button');
+        button.type='button';button.className='btn real-camera-button';button.textContent='📷 PIGA KWA CAMERA';
+        var result=document.createElement('span');result.className='camera-result';
+        button.addEventListener('click',function(event){event.preventDefault();event.stopPropagation();openCamera(input);});
+        if(label&&label.classList.contains('camera-field')){label.addEventListener('click',function(event){event.preventDefault();});label.appendChild(button);label.appendChild(result);}else{input.parentElement.appendChild(button);input.parentElement.appendChild(result);}
+    });
+    modal.querySelector('.camera-close').addEventListener('click',closeCamera);
+    modal.addEventListener('click',function(event){if(event.target===modal)closeCamera();});
+    modal.querySelector('.camera-take').addEventListener('click',function(){
+        if(!activeInput||!stream)return;
+        var canvas=document.createElement('canvas');canvas.width=video.videoWidth;canvas.height=video.videoHeight;
+        canvas.getContext('2d').drawImage(video,0,0,canvas.width,canvas.height);
+        canvas.toBlob(function(blob){
+            if(!blob)return;
+            var file=new File([blob],'camera-'+Date.now()+'.jpg',{type:'image/jpeg'});
+            var transfer=new DataTransfer();transfer.items.add(file);activeInput.files=transfer.files;
+            var result=activeInput.closest('.camera-field')?.querySelector('.camera-result')||activeInput.parentElement.querySelector('.camera-result');
+            if(result)result.textContent='✓ Picha imepigwa kwa camera na iko tayari kutumwa.';
+            closeCamera();
+        },'image/jpeg',.9);
+    });
+}());
 </script><script>(function(){const lang=document.documentElement.lang||'sw';const Msw={'Dashboard':'Dashibodi','Technicians':'Mafundi','Customers':'Wateja','Materials':'Vifaa','Material Report':'Ripoti za Material','Site Photos':'Picha za Sites','Approvals':'Uidhinishaji','Administration':'Usimamizi','Logout':'Toka','Switch System':'Badilisha Mfumo','Technician Portal':'Portal ya Fundi','Assigned Sites':'Sites Nilizopewa','My Sites':'Sites Zangu','My Tool Records':'Rekodi za Tools Zangu','Status':'Hali','Action':'Kitendo','Date':'Tarehe','Quantity':'Kiasi','Customer':'Mteja','Team':'Timu','Good':'Nzuri','Damaged':'Imeharibika','Missing':'Imepotea','Available':'Ipo','Issued':'Imetolewa','Returned':'Imerejeshwa','Pending':'Inasubiri','Approved':'Imeidhinishwa','Rejected':'Imekataliwa','Completed':'Imekamilika','In Progress':'Inaendelea','Closed':'Imefungwa','Assigned':'Imepewa Fundi','Verified':'Imethibitishwa','Before Work':'Kabla ya Kazi','Work Progress':'Kazi Inaendelea','Material Received':'Material Imepokelewa','Material Used':'Material Imetumika','Completed Work':'Kazi Imekamilika','Problem / Damage':'Tatizo / Uharibifu','Site Arrival':'Kufika Site','Site Exit':'Kuondoka Site','Customer Handover':'Makabidhiano kwa Mteja','Open Map':'Fungua Map','Get Location':'Pata Location','EDIT':'HARIRI','DELETE':'FUTA','CANCEL':'GHAIRI'};const Men={};Object.keys(Msw).forEach(k=>Men[Msw[k]]=k);const M=lang==='sw'?Msw:Men;document.querySelectorAll('body *').forEach(function(e){if(e.children.length===0){let t=e.textContent.trim();if(M[t])e.textContent=M[t];}if(e.placeholder&&M[e.placeholder])e.placeholder=M[e.placeholder];});})();</script></body></html><?php exit; }
 
 if ($page === 'choose_system' && isset($_SESSION['user'])):
@@ -2655,13 +3040,13 @@ if ($page === 'choose_system' && isset($_SESSION['user'])):
     $chooseSuperAdmin = in_array($chooseRole, ['super admin', 'super_admin', 'superadmin'], true);
     $chooseBusiness = $chooseSuperAdmin || in_array($chooseRole, ['admin', 'msimamizi'], true) || !empty($choosePerms['business_system']);
     $chooseSite = $chooseSuperAdmin || !empty($choosePerms['site_tracking_system']);
-?>
+    ?>
 <!doctype html>
-<html lang="sw">
+<html lang="<?=htmlspecialchars($zanLang, ENT_QUOTES, 'UTF-8')?>">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Chagua Mfumo - Zantronix</title>
+<title><?=htmlspecialchars(zan_t('Chagua Mfumo - Zantronix','Choose System - Zantronix'))?></title>
 <link rel="stylesheet" href="style.css">
 <style>
 .system-choice{max-width:760px;margin:70px auto;padding:28px;background:#fff;border-radius:14px;text-align:center}
@@ -2675,13 +3060,13 @@ if ($page === 'choose_system' && isset($_SESSION['user'])):
 <body style="background:#f4f4f4">
 <main class="system-choice">
 <h1>⚡ ZANTRONIX</h1>
-<h2>Chagua Mfumo</h2>
-<p>Chagua sehemu unayotaka kutumia.</p>
+<h2><?=htmlspecialchars(zan_t('Chagua Mfumo','Choose System'))?></h2>
+<p><?=htmlspecialchars(zan_t('Chagua sehemu unayotaka kutumia.','Choose the system you want to use.'))?></p>
 <div class="system-options">
-<?php if ($chooseBusiness): ?><a class="system-card" href="?page=dashboard&system=business">Business System</a><?php endif; ?>
-<?php if ($chooseSite): ?><a class="system-card site" href="?page=site_tracking">Site Tracking System</a><?php endif; ?>
+<?php if ($chooseBusiness): ?><a class="system-card" href="?page=dashboard&system=business"><?=htmlspecialchars(zan_t('Mfumo wa Biashara','Business System'))?></a><?php endif; ?>
+<?php if ($chooseSite): ?><a class="system-card site" href="?page=site_tracking"><?=htmlspecialchars(zan_t('Mfumo wa Ufuatiliaji wa Sites','Site Tracking System'))?></a><?php endif; ?>
 </div>
-<p style="margin-top:26px"><a href="?logout=1">Toka</a></p>
+<p style="margin-top:26px"><a href="?logout=1"><?=htmlspecialchars(zan_t('Toka','Logout'))?></a></p>
 </main>
 </body>
 </html>
@@ -2999,6 +3384,9 @@ if (
     );
 
     exit;
+}
+function st_google_map_url($lat,$lng){
+    return 'https://www.google.com/maps/search/?api=1&query='.rawurlencode((string)$lat.','.(string)$lng);
 }
 
 /* =========================================================
@@ -4499,7 +4887,7 @@ $nav = [
 ?>
 <!doctype html>
 
-<html lang="sw">
+<html lang="<?=htmlspecialchars($zanLang, ENT_QUOTES, 'UTF-8')?>">
 
 <head>
 
@@ -4512,9 +4900,7 @@ $nav = [
 <?=htmlspecialchars(
     $settings['company_name']
     ?? 'Zantronix'
-)?>
-</title>
-
+)?></title>
 <link rel="stylesheet"
       href="style.css">
 
@@ -8743,6 +9129,150 @@ hesabuEdit();
  }).catch(()=>msg.textContent='Hitilafu ya kuwasiliana na mfumo.');
  });
 })();
+<script>
+(function () {
+    var language = document.documentElement.lang || 'sw';
+    var pairs = {
+        'Dashboard': 'Dashibodi',
+        'Customers': 'Wateja',
+        'Products': 'Bidhaa',
+        'Products & Stock': 'Bidhaa na Stoo',
+        'Suppliers': 'Wasambazaji',
+        'New Invoice': 'Tengeneza Ankara',
+        'Invoices': 'Ankara',
+        'New Quotation': 'Quotation Mpya',
+        'Quotations': 'Quotations',
+        'New Proforma Invoice': 'Proforma Invoice Mpya',
+        'Proforma Invoices': 'Proforma Invoices',
+        'Expenses': 'Matumizi',
+        'Reports': 'Ripoti',
+        'Settings': 'Mipangilio',
+        'Users': 'Watumiaji',
+        'Activity History': 'Historia ya Shughuli',
+        'Login': 'Kuingia',
+        'Logout': 'Toka',
+        'Username': 'Jina la mtumiaji',
+        'Password': 'Nenosiri',
+        'Forgot Password': 'Umesahau Nenosiri',
+        'Forgot Password?': 'Umesahau Nenosiri?',
+        'Search': 'Tafuta',
+        'Save': 'Hifadhi',
+        'SAVE': 'HIFADHI',
+        'Edit': 'Hariri',
+        'EDIT': 'HARIRI',
+        'Delete': 'Futa',
+        'DELETE': 'FUTA',
+        'Cancel': 'Ghairi',
+        'CANCEL': 'GHAIRI',
+        'Close': 'Funga',
+        'Submit': 'Tuma',
+        'SUBMIT': 'TUMA',
+        'Update': 'Sasisha',
+        'UPDATE': 'SASISHA',
+        'Add': 'Ongeza',
+        'Remove': 'Ondoa',
+        'Print': 'Chapisha',
+        'Download': 'Pakua',
+        'Date': 'Tarehe',
+        'Amount': 'Kiasi',
+        'Quantity': 'Kiasi',
+        'Price': 'Bei',
+        'Total': 'Jumla',
+        'Subtotal': 'Jumla ndogo',
+        'Discount': 'Punguzo',
+        'Payment': 'Malipo',
+        'Payment Details': 'Maelezo ya Malipo',
+        'Status': 'Hali',
+        'Action': 'Kitendo',
+        'Notes': 'Maelezo',
+        'Terms & Conditions': 'Masharti',
+        'Valid Until': 'Halali Mpaka',
+        'Select Customer': 'Chagua Mteja',
+        'Select Site': 'Chagua Site',
+        'Select Product': 'Chagua Bidhaa',
+        'No data found': 'Hakuna data iliyopatikana',
+        'No results found': 'Hakuna matokeo yaliyopatikana',
+        'Loading...': 'Inapakia...',
+        'Error': 'Hitilafu',
+        'Stock': 'Stoo',
+        'Healthy Stock': 'Stoo Salama',
+        'Low Stock': 'Stoo Chini',
+        'Out of Stock': 'Imeisha',
+        'Paid': 'Imelipwa',
+        'Outstanding': 'Bado Kulipwa',
+        'Good': 'Nzuri',
+        'Damaged': 'Imeharibika',
+        'Missing': 'Imepotea',
+        'Pending': 'Inasubiri',
+        'Approved': 'Imeidhinishwa',
+        'Rejected': 'Imekataliwa',
+        'Completed': 'Imekamilika',
+        'In Progress': 'Inaendelea',
+        'Closed': 'Imefungwa',
+        'Assigned': 'Imepewa Fundi',
+        'Verified': 'Imethibitishwa',
+        'Tools': 'Tools',
+        'Materials': 'Vifaa',
+        'Technicians': 'Mafundi',
+        'Technician Portal': 'Portal ya Fundi',
+        'Site Photos': 'Picha za Sites',
+        'Open Map': 'Fungua Map',
+        'Get Location': 'Pata Location',
+        'Switch System': 'Badilisha Mfumo',
+        'Business System': 'Mfumo wa Biashara',
+        'Site Tracking System': 'Mfumo wa Ufuatiliaji wa Sites',
+        'Choose System': 'Chagua Mfumo',
+        'Customer': 'Mteja',
+        'Phone': 'Simu',
+        'Email': 'Barua pepe',
+        'Address': 'Anwani',
+        'Name': 'Jina',
+        'Invoice': 'Ankara',
+        'Quotation': 'Quotation',
+        'Report': 'Ripoti',
+        'Photo': 'Picha',
+        'GPS': 'GPS',
+        'Map': 'Ramani',
+        'Created': 'Imeundwa',
+        'Received': 'Imepokelewa',
+        'Issued': 'Imetolewa',
+        'Returned': 'Imerejeshwa',
+        'Material Report': 'Ripoti za Vifaa',
+        'Administration': 'Usimamizi',
+        'Approvals': 'Uidhinishaji'
+    };
+    var englishToSwahili = pairs;
+    var swahiliToEnglish = {};
+    Object.keys(pairs).forEach(function (english) {
+        swahiliToEnglish[pairs[english]] = english;
+    });
+    var dictionary = language === 'en' ? swahiliToEnglish : englishToSwahili;
+    var sourceWords = Object.keys(dictionary).sort(function (a, b) {
+        return b.length - a.length;
+    });
+    function translate(value) {
+        var trimmed = value.trim();
+        if (!trimmed) return value;
+        if (dictionary[trimmed]) {
+            return value.replace(trimmed, dictionary[trimmed]);
+        }
+        var translated = value;
+        sourceWords.forEach(function (source) {
+            translated = translated.split(source).join(dictionary[source]);
+        });
+        return translated;
+    }
+    document.querySelectorAll('body *').forEach(function (element) {
+        element.childNodes.forEach(function (node) {
+            if (node.nodeType === 3) node.nodeValue = translate(node.nodeValue);
+        });
+        ['placeholder', 'title', 'aria-label'].forEach(function (attribute) {
+            if (element.hasAttribute(attribute)) {
+                element.setAttribute(attribute, translate(element.getAttribute(attribute)));
+            }
+        });
+    });
+}());
 </script>
 </body>
 
